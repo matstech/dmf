@@ -1,0 +1,43 @@
+name: test-run-and-syntax-checks
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Tests and Syntax Checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Poetry
+        run: pipx install poetry
+
+      - name: Configure Poetry
+        run: poetry config virtualenvs.in-project true
+
+      - name: Install dependencies and spaCy model
+        run: make install
+
+      - name: Check package metadata
+        run: make check
+
+      - name: Build package
+        run: make build
+
+      - name: Compile Python sources
+        run: make compile
+
+      - name: Run tests
+        run: make test

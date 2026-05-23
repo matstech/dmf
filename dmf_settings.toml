@@ -1,0 +1,246 @@
+# =============================================================================
+# config/dmf_settings.toml
+# =============================================================================
+# Universal configuration for the Deterministic Memory Framework (DMF).
+#
+# All numeric constants that previously existed as hardcoded module-level
+# values are centralised here.  The file is parsed once
+# at startup by config_loader.load_dmf_config() and injected into every
+# component via DMFConfig.
+#
+# Section map
+# -----------
+#   [nlp]              → NLPEngine + EmbeddingEngine + InteractionMatrix
+#   [scoring_weights]  → ScoringEngine
+#   [temporal_decay]   → TemporalMemory decay maths
+#   [memory_tiers]     → TemporalMemory pruning bucket thresholds
+#   [capacity]         → TemporalMemory budget + InteractionMatrix window
+#   [pruning_priority] → TemporalMemory pressure-pruning retention bonuses
+#   [ltm]              → Long-Term Memory persistence backend
+#   [retrieval]        → Candidate generation and evidence assembly
+#
+# Calibration note
+# ----------------
+# The scoring weights below are calibrated so that an "average" interaction
+# (ID≈0.40, |S|≈0.15, E_norm≈0.20, D≈0.15) produces Ω≈0.50, giving the
+# sigmoid maximum discriminatory power in the typical signal range.
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# NLP / embedding
+# ---------------------------------------------------------------------------
+[nlp]
+# spaCy pipeline used by NLPEngine and TemplateSummarizer.
+# Must be installed: python -m spacy download en_core_web_sm
+spacy_model = "en_core_web_sm"
+
+# FastEmbed model used for interaction and query embeddings.
+model_name = "nomic-ai/nomic-embed-text-v1.5"
+
+# Native output dimension of the selected embedding model.
+# Used by EmbeddingEngine and InteractionMatrix for vector validation.
+vector_dim = 768
+
+# ---------------------------------------------------------------------------
+# Survival Score weights  (ScoringEngine)
+#
+# Field naming follows the signal each weight amplifies:
+#   alpha_density   → Information Density (ID)        — dominant signal
+#   beta_entities   → Entity count (E_norm)           — factual anchor
+#   gamma_sentiment → Absolute Sentiment (|S|)        — emotional salience
+#   delta_technical → Semantic Divergence (D)         — value is negative: penalises drift
+#
+# Mapping to internal ScoringConfig Greek-letter fields:
+#   alpha_density   → ScoringConfig.alpha   (ID weight)
+#   beta_entities   → ScoringConfig.gamma   (entity weight)
+#   gamma_sentiment → ScoringConfig.beta    (sentiment weight)
+#   delta_technical → ScoringConfig.delta   (divergence penalty)
+# ---------------------------------------------------------------------------
+[scoring_weights]
+alpha_density   =  3.0    # info-density weight α
+beta_entities   =  2.0    # entity-count weight γ  (high E_norm → higher Ω)
+gamma_sentiment =  0.2    # sentiment-magnitude weight β
+delta_technical = -2.5    # divergence penalty δ  (negative keeps drifting msgs low)
+
+# Sigmoid midpoint: z value at which Ω = 0.5
+sigmoid_midpoint = 1.5
+
+# Entity saturation cap: raw E is clipped to [0, entity_cap] before normalisation
+entity_cap = 5
+
+# Social floor: short rapport messages ("Thanks!", "Ok") receive at least
+# min_social_score when their raw Ω falls below social_threshold.
+# Note: min_social_score < social_threshold by design — it provides a floor
+# that prevents eviction without inflating Ω to an unjustified level.
+social_threshold  = 0.4
+min_social_score  = 0.25
+
+# Conversational operational salience: these weights contribute to the
+# pre-sigmoid operational channel. They do not replace the legacy content
+# score; they are added to it before the final sigmoid.
+#
+# z_operational =
+#   lambda_operational * (
+#     eta_constraint   * is_constraint +
+#     eta_preference   * is_preference +
+#     eta_current_state * is_current_state +
+#     eta_correction   * is_correction +
+#     eta_replacement  * has_replacement +
+#     eta_past_state   * is_past_state
+#   )
+#
+# Rationale:
+# - constraints should carry the strongest operational weight
+# - corrections should strongly affect salience
+# - current-state and preference signals should help recent operative memory
+# - past-state is neutral by default: conflict resolution belongs in memory policy,
+#   not in an overly aggressive negative score
+lambda_operational = 0.75
+eta_constraint = 1.20
+eta_preference = 0.70
+eta_current_state = 0.60
+eta_correction = 0.90
+eta_replacement = 0.50
+eta_past_state = 0.0
+
+# Structured provenance contributions: these are added pre-sigmoid in the
+# same weighted score space, then the final sigmoid is applied once.
+user_correction_boost = 0.15
+preference_update_boost = 0.10
+constraint_boost = 0.10
+corrected_by_user_penalty = 0.0
+
+# ---------------------------------------------------------------------------
+# Temporal decay  (TemporalMemory)
+# ---------------------------------------------------------------------------
+[temporal_decay]
+# Base decay rate λ.  Half-life at μ=1 (no inertia): ln(2)/λ ≈ 19.8 turns.
+lambda_base = 0.035
+
+# Inertia coefficient η ∈ [0, 1).  Higher Ω → slower effective decay.
+# η=0.5 means a message with Ω=0.80 decays at 60 % of the base rate.
+inertia_strength = 0.5
+
+# Absolute eviction floor.  Entries with Ω_eff < this are hard-killed by
+# periodic_cleanup regardless of tier.
+hard_kill_threshold = 0.05
+
+# ---------------------------------------------------------------------------
+# Memory tier thresholds  (TemporalMemory pruning)
+# ---------------------------------------------------------------------------
+[memory_tiers]
+# Runtime classification uses only critical_max and healthy_min:
+#   Ω_eff ≤ critical_max               → CRITICAL (highest eviction priority)
+#   critical_max < Ω_eff ≤ healthy_min  → UNSTABLE (at risk under pressure)
+#   Ω_eff > healthy_min                 → HEALTHY  (protected from pressure pruning)
+#
+# unstable_max is reserved for future sub-tier reporting; it must stay
+# ordered (critical_max < unstable_max ≤ healthy_min) but does not affect
+# runtime pruning or tier assignment.
+critical_max = 0.3
+unstable_max = 0.6
+healthy_min = 0.75
+
+# ---------------------------------------------------------------------------
+# Capacity limits  (TemporalMemory + InteractionMatrix)
+# ---------------------------------------------------------------------------
+[capacity]
+# Maximum total tiktoken tokens across all active queue entries.
+# Entries are pressure-evicted (lowest effective_pruning_score first)
+# until this is met.
+token_budget = 4096
+
+# Periodic cleanup runs every pruning_frequency_x turns.
+# (The _x suffix avoids a naming collision in certain TOML parser versions.)
+pruning_frequency_x = 5
+
+# Maximum vectors retained in the InteractionMatrix sliding window.
+window_size = 10
+
+# ---------------------------------------------------------------------------
+# Pressure-pruning retention bonuses  (TemporalMemory)
+# These bonuses apply only when the queue exceeds token_budget.
+#
+# effective_pruning_score =
+#   Ω_eff
+#   + rho_constraint          * is_constraint
+#   + rho_preference          * is_preference
+#   + rho_current_state       * is_current_state
+#   + rho_correction          * is_correction
+#   + rho_replacement         * has_replacement
+#   - superseded_past_penalty * is_topic_superseded
+#
+# Lower effective_pruning_score values are evicted first.
+# These bonuses do not affect decay, periodic hard-kill, or tier assignment.
+# ---------------------------------------------------------------------------
+[pruning_priority]
+rho_constraint = 0.20
+rho_preference = 0.10
+rho_current_state = 0.10
+rho_correction = 0.15
+rho_replacement = 0.08
+
+# If an older entry is superseded by a newer entry on the same topic, this
+# penalty is subtracted from its effective pruning score so it is evicted
+# earlier under pressure.
+superseded_past_penalty = 0.35
+
+# ---------------------------------------------------------------------------
+# Long-Term Memory  (FileLTMHook / ChromaLTMHook)
+# ---------------------------------------------------------------------------
+[ltm]
+# Backend type.
+#   "file"   → FileLTMHook  (JSONL audit trail, write-only).
+#   "chroma" → ChromaLTMHook (vector store + active recall).
+#   "null"   → NullLTMHook  (silent discard, useful in tests).
+storage_type = "chroma"
+
+# Path to the JSONL archive file (used when storage_type="file").
+# The parent directory is created automatically if it does not exist.
+storage_path = "data/ltm_archive.jsonl"
+
+# Persist directory for the ChromaDB vector store (storage_type="chroma").
+chroma_path = "data/ltm_chroma"
+
+# ChromaDB collection name.  Change to start a fresh memory namespace.
+collection_name = "dmf_memory"
+
+# Maximum number of raw records to retrieve per active-recall search.
+recall_limit = 5
+
+# Cosine-distance ceiling for recalled raw records (range [0, 2]).
+# distance = 1 - cosine_similarity; 0.7 → similarity > 0.3 (related only).
+distance_threshold = 0.7
+
+# Set to false to disable LTM persistence and fall back to NullLTMHook.
+enabled = true
+
+# Auxiliary structured memory-card index. Raw LTM remains canonical and
+# retrieval continues to use the raw-LTM path unless later phases opt in.
+cards_enabled = false
+cards_path = "data/ltm_cards.jsonl"
+cards_collection_name = "dmf_cards"
+
+# ---------------------------------------------------------------------------
+# Candidate generation  (Fase 3 — opt-in, no public final-recall change)
+# ---------------------------------------------------------------------------
+[retrieval]
+# Candidate-pool prefetch budgets. These are separate from ltm.recall_limit,
+# which remains the existing public final recall limit until later phases.
+card_prefetch_k = 32
+raw_prefetch_k = 16
+symbolic_lookup_k = 16
+
+# Explicit final cutoff after answerability rerank. This is intentionally
+# separate from ltm.recall_limit until the public API is stabilized.
+final_recall_limit = 5
+
+# Evidence expansion controls for winning cards.
+max_support_turns_per_card = 3
+include_superseded_when_historical = true
+include_neighbor_turns = false
+
+enable_raw_semantic = true
+enable_raw_lexical = true
+enable_card_semantic = true
+enable_card_symbolic = true
