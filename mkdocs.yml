@@ -20,8 +20,7 @@
 #
 # SPDX-License-Identifier: MIT
 
-site_name: DMF 
-site_description: Deterministic Memory Framework
+site_name: dmf 
 
 theme:
   name: material
@@ -53,6 +52,7 @@ plugins:
 
 nav:
   - Home: index.md
+  - Configuration: configuration.md
   - API Reference:
       - APIs: api/public.md
       - Internals: api/internals.md
@@ -61,3 +61,9 @@ markdown_extensions:
   - admonition
   - pymdownx.details
   - pymdownx.superfences
+  - pymdownx.arithmatex:
+      generic: true
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js

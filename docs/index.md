@@ -1,10 +1,3 @@
-# DMF (Deterministic Memory Framework)
-
-Welcome to the documentation for DMF (Deterministic Memory Framework).
-
-## Introduction
-*(TODO: Add a detailed description of what the framework is, how the Deterministic Memory Framework operates conceptually, and its core design principles.)*
-
 ## Quickstart & Usage
 
 The main entry point for querying the active memory is the `Memory` class. To initialize the framework, you typically provide a configuration, an embedding engine, and a temporal memory instance (which wraps your chosen Long-Term Memory backend, like ChromaDB).
