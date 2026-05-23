@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <style>
+    .dmf-logo {
+      stroke: #1a1a1a;
+    }
+    .dmf-node {
+      fill: #1a1a1a;
+    }
+    @media (prefers-color-scheme: dark) {
+      .dmf-logo {
+        stroke: #ffffff;
+      }
+      .dmf-node {
+        fill: #ffffff;
+      }
+    }
+  </style>
+  <g class="dmf-logo" fill="none" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Outer bounds (hexagonal memory block) -->
+    <path d="M60 10 L105 35 L105 85 L60 110 L15 85 L15 35 Z" stroke-width="6"/>
+    
+    <!-- Inner connections linking to a central deterministic circuit -->
+    <path d="M60 10 L60 35 M105 35 L80 50 M105 85 L80 70 M60 110 L60 85 M15 85 L40 70 M15 35 L40 50"/>
+    
+    <!-- Central processing unit (deterministic core) -->
+    <rect x="45" y="45" width="30" height="30" rx="4"/>
+    
+    <!-- Connecting central circuit to the inner nodes -->
+    <path d="M60 35 L60 45 M80 50 L75 50 M80 70 L75 70 M60 85 L60 75 M40 70 L45 70 M40 50 L45 50"/>
+    
+    <!-- Node endpoints (memory nodes) -->
+    <circle class="dmf-node" cx="60" cy="35" r="4" stroke="none"/>
+    <circle class="dmf-node" cx="80" cy="50" r="4" stroke="none"/>
+    <circle class="dmf-node" cx="80" cy="70" r="4" stroke="none"/>
+    <circle class="dmf-node" cx="60" cy="85" r="4" stroke="none"/>
+    <circle class="dmf-node" cx="40" cy="70" r="4" stroke="none"/>
+    <circle class="dmf-node" cx="40" cy="50" r="4" stroke="none"/>
+  </g>
+</svg>

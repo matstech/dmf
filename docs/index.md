@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.svg" alt="DMF Logo" width="65"/>
+</p>
+
 ## Quickstart & Usage
 
 The main entry point for querying the active memory is the `Memory` class. To initialize the framework, you typically provide a configuration, an embedding engine, and a temporal memory instance (which wraps your chosen Long-Term Memory backend, like ChromaDB).

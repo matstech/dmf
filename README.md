@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/logo.svg" alt="DMF Logo" width="65"/>
+</p>
+
 # dmf
 
 The **deterministic memory framework (dmf)** is a memory management system designed for conversational agents. Unlike black-box, LLM-driven memory systems that suffer from unpredictable retention and hallucination, DMF operates on deterministic rules, mathematical temporal decay, and structured semantic retrieval.

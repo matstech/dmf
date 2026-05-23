@@ -24,6 +24,9 @@ site_name: dmf
 
 theme:
   name: material
+  favicon: assets/logo.svg
+  logo: assets/logo.svg
+  
   features:
     - navigation.tabs
     - navigation.sections
@@ -31,14 +34,17 @@ theme:
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
+      primary: white
       toggle:
         icon: material/brightness-7
-        name: Passa al tema scuro
+        name: Dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
+      primary: black
       toggle:
         icon: material/brightness-4
-        name: Passa al tema chiaro
+        name: Light mode
+        
 
 plugins:
   - search
