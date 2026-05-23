@@ -4,7 +4,17 @@ on:
   push:
     branches:
       - "**"
+    paths:
+      - "dmf/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - "Makefile"
   pull_request:
+    paths:
+      - "dmf/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - "Makefile"
   workflow_dispatch:
 
 jobs:
