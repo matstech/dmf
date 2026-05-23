@@ -53,6 +53,7 @@ plugins:
 nav:
   - Home: index.md
   - Configuration: configuration.md
+  - Context Rendering: prompt_structure.md
   - API Reference:
       - APIs: api/public.md
       - Internals: api/internals.md
