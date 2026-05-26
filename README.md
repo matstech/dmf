@@ -4,51 +4,41 @@
 
 # dmf
 
-The **deterministic memory framework (dmf)** is a memory management system designed for conversational agents. Unlike black-box, LLM-driven memory systems that suffer from unpredictable retention and hallucination, DMF operates on deterministic rules, mathematical temporal decay, and structured semantic retrieval.
+The **deterministic memory framework (dmf)** is a memory management system designed for conversational agents. The idea behind this framework is to avoid unpredictable retention, hallucination, and information loss in memory systems due to an "LLM-in-the-flow" architecture. For this reason, DMF operates on deterministic rules, mathematical temporal decay, and structured semantic retrieval.
 
-At its core, the framework orchestrates short-term (active) and long-term memory (LTM) by bridging interaction pipelines with pluggable vector databases.
+At its core, the framework orchestrates _active short-term_ and _long-term memory_ by bridging interaction pipelines with vector databases.
 
 ## Motivations
 
 Current approaches to memory in conversational agents rely heavily on the LLM itself to decide what to remember, summarize, or forget. This introduces several fundamental problems:
 
-- **Non-reproducibility:** The same conversation can produce different memory states across runs, making debugging and testing nearly impossible.
+- **Non-reproducibility:** The same conversation can produce different memory states across runs, making debugging and testing nearly impossible (caching is practically infeasible).
 - **Silent information loss:** LLM-driven summarization silently drops details that may be critical later, with no audit trail or recovery mechanism.
 - **Hallucinated recall:** When asked to retrieve past context, models may confabulate facts that were never part of the conversation.
 - **Opaque retention logic:** There is no way to inspect, tune, or predict which information will survive and which will be discarded.
 
-DMF addresses these issues by replacing probabilistic memory management with a fully deterministic, mathematically grounded pipeline. Every retention decision is traceable to explicit scoring functions, configurable thresholds, and transparent decay curves. This aims to give to developers complete control and auditability over their agent's memory lifecycle.
+DMF addresses these issues by replacing probabilistic memory management with a fully deterministic, mathematically grounded pipeline. Every retention decision is traceable to explicit scoring functions, configurable thresholds, and transparent decay curves.
 
 ## Core Design Principles
 
 - **Deterministic NLP Analysis:** Employs rule-based parsing to deterministically extract interaction signals, topics, and metrics like information density.
 - **Temporal Dynamics:** Automatically manages context size using mathematical time-decay functions and recency windows, naturally prioritizing fresh and highly relevant information.
-- **Pluggable Long-Term Memory (LTM):** Seamlessly archives interactions into vector databases and triggers context-aware semantic recalls when relevant historical data is needed.
+- **Pluggable Long-Term Memory:** Seamlessly archives interactions into vector databases and triggers context-aware semantic recalls when relevant historical data is needed.
 - **Structured Retrieval:** Guarantees that the context injected into your agent's prompt is always optimized through multi-stage candidate generation, answerability reranking, and evidence assembly.
 
 ## Installation
 
-DMF will soon be available on PyPI. You can install it via pip:
+You can install it via pip:
 
 ```bash
 pip install dmf-memory
 ```
 
-_(Note: Package is currently in active development, name subject to change)_
-
 ## Configuration
 
-DMF is fully configurable via a `dmf_settings.toml` file. You can adjust NLP models, temporal decay rates, and pruning priorities to suit your agent's needs.
+DMF is fully configurable via a [TOML](https://toml.io/en/) file. You can adjust NLP models, temporal decay rates, and pruning priorities to suit your agent's needs.
 
 For a comprehensive guide on all configuration parameters, please check our [configuration documentation](configuration.md) in MkDocs.
-
-## Documentation
-
-Full API Reference and Quickstart guides are available in our MkDocs documentation. To serve the docs locally:
-
-```bash
-make docs-serve
-```
 
 ## Development & Makefile
 
