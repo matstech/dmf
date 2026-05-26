@@ -1,38 +1,39 @@
 name: publish
 
 on:
-    push:
-        tags:
-            - "*"
+  push:
+    tags:
+      - "*"
 
 jobs:
-    publish:
-        name: Build and Publish to PyPI
-        runs-on: ubuntu-latest
-        environment: pypi
-        permissions:
-            id-token: write
+  publish:
+    name: Build and Publish to PyPI
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+      contents: read
 
-        steps:
-            - name: Checkout
-              uses: actions/checkout@v4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-            - name: Set up Python
-              uses: actions/setup-python@v5
-              with:
-                  python-version: "3.12"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
-            - name: Install Poetry
-              run: pipx install poetry
+      - name: Install Poetry
+        run: pipx install poetry
 
-            - name: Configure Poetry
-              run: poetry config virtualenvs.in-project true
+      - name: Configure Poetry
+        run: poetry config virtualenvs.in-project true
 
-            - name: Install dependencies
-              run: make install
+      - name: Install dependencies
+        run: make install
 
-            - name: Build package
-              run: make build
+      - name: Build package
+        run: make build
 
-            - name: Publish to PyPI
-              uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
