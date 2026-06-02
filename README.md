@@ -51,6 +51,11 @@ The project provides a `Makefile` to simplify common development tasks:
 - `make docs-serve`: Serve the documentation locally.
 - `make docs-build`: Build the static documentation site.
 
+## Benchmarks
+
+This framework has been tested and compared with the LoCoMo and LongMemEval frameworks; full details are available in the [dedicated repository](https://github.com/matstech/dmf-benchmarks)
+
+
 <!-- ## Citation
 
 If you use the Deterministic Memory Framework in your research, please cite our paper:
