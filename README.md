@@ -68,3 +68,7 @@ If you use the Deterministic Memory Framework in your research, please cite our 
   year={2026}
 }
 ``` -->
+
+## Copyright
+
+Copyright 2026 by [Matteo Stabile](https://www.linkedin.com/in/matteo-stabile) and [Enrico Zimuel](https://www.zimuel.it/).
