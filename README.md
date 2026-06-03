@@ -2,9 +2,11 @@
   <img src="docs/assets/logo.svg" alt="DMF Logo" width="65"/>
 </p>
 
-# dmf
+**Paper**: [arXiv](https://arxiv.org/abs/2606.03463)
 
-The **deterministic memory framework (dmf)** is a memory management system designed for conversational agents. The idea behind this framework is to avoid unpredictable retention, hallucination, and information loss in memory systems due to an "LLM-in-the-flow" architecture. For this reason, DMF operates on deterministic rules, mathematical temporal decay, and structured semantic retrieval.
+# DMF
+
+The **Deterministic Memory Framework (DMF)** is a memory management system designed for conversational agents. The idea behind this framework is to avoid unpredictable retention, hallucination, and information loss in memory systems due to an "LLM-in-the-flow" architecture. For this reason, DMF operates on deterministic rules, mathematical temporal decay, and structured semantic retrieval.
 
 At its core, the framework orchestrates _active short-term_ and _long-term memory_ by bridging interaction pipelines with vector databases.
 
@@ -56,18 +58,21 @@ The project provides a `Makefile` to simplify common development tasks:
 This framework has been tested and compared with the LoCoMo and LongMemEval frameworks; full details are available in the [dedicated repository](https://github.com/matstech/dmf-benchmarks)
 
 
-<!-- ## Citation
+## Citation
 
 If you use the Deterministic Memory Framework in your research, please cite our paper:
 
 ```bibtex
-@article{,
-  title={},
-  author={},
-  journal={arXiv preprint},
-  year={2026}
+@misc{stabile2026dmf,
+  title = {DMF: A Deterministic Memory Framework for Conversational AI Agents},
+  author = {Matteo Stabile and Enrico Zimuel},
+  year = {2026},
+  eprint = {2606.03463},
+  archivePrefix = {arXiv},
+  primaryClass = {cs.LG},
+  url = {https://arxiv.org/abs/2606.03463}
 }
-``` -->
+```
 
 ## Copyright
 
