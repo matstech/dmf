@@ -30,7 +30,7 @@ import numpy as np
 
 from dmf.memory.card_projection import mark_superseded, project_memory_cards
 from dmf.memory.card_store import JsonlMemoryCardStore
-from dmf.memory.ltm_engine import FileLTMHook
+from dmf.memory.ltm_hooks import FileLTMHook
 from dmf.memory.temporal_memory import TemporalMemory
 from dmf.models.analysis import (
     AnalysisReport,

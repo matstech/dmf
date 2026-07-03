@@ -20,17 +20,9 @@
 #
 # SPDX-License-Identifier: MIT
 
-"""Deprecated compatibility import for the Chroma LTM hook."""
-
-import warnings
+"""Canonical long-term-memory hook implementations."""
 
 from dmf.memory.ltm_hooks.chroma_hook import ChromaLTMHook
+from dmf.memory.ltm_hooks.file_hook import FileLTMHook
 
-warnings.warn(
-    "dmf.memory.chroma_ltm is deprecated; import ChromaLTMHook from "
-    "dmf.memory.ltm_hooks instead",
-    DeprecationWarning,
-    stacklevel=2,
-)
-
-__all__ = ["ChromaLTMHook"]
+__all__ = ["ChromaLTMHook", "FileLTMHook"]

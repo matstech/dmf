@@ -28,7 +28,7 @@ import threading
 import numpy as np
 import pytest
 
-from dmf.memory.chroma_ltm import ChromaLTMHook
+from dmf.memory.ltm_hooks import ChromaLTMHook
 from dmf.models.analysis import AnalysisReport
 from dmf.models.memory import MemoryEntry
 from dmf.models.raw_ltm import RawLTMRecord, RawRecallHit
