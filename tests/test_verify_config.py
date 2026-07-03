@@ -54,6 +54,16 @@ class TestConfigParsing:
         assert isinstance(cfg.nlp.spacy_model, str)
         assert cfg.nlp.vector_dim > 0
 
+    def test_ltm_chroma_connection_section(self, cfg: DMFConfig) -> None:
+        assert cfg.ltm.chroma_mode == "embedded"
+        assert cfg.ltm.chroma_host == "localhost"
+        assert cfg.ltm.chroma_port == 8000
+        assert cfg.ltm.chroma_ssl is False
+        assert cfg.ltm.chroma_tenant == "default_tenant"
+        assert cfg.ltm.chroma_database == "default_database"
+        assert cfg.ltm.chroma_auth_token_env == ""
+
+
 class TestComponentInjection:
     """Factory classmethods produce valid components from DMFConfig."""
 

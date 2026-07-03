@@ -144,6 +144,158 @@ enabled = false
     assert cfg.ltm.enabled is False
 
 
+def test_ltm_chroma_connection_defaults_preserve_embedded_mode(
+    tmp_path: Path,
+) -> None:
+    cfg = load_dmf_config(_write_toml(tmp_path, "[ltm]"))
+
+    assert cfg.ltm.chroma_mode == "embedded"
+    assert cfg.ltm.chroma_host == "localhost"
+    assert cfg.ltm.chroma_port == 8000
+    assert cfg.ltm.chroma_ssl is False
+    assert cfg.ltm.chroma_tenant == "default_tenant"
+    assert cfg.ltm.chroma_database == "default_database"
+    assert cfg.ltm.chroma_auth_token_env == ""
+
+
+def test_load_dmf_config_parses_chroma_server_settings(tmp_path: Path) -> None:
+    path = _write_toml(
+        tmp_path,
+        """
+[ltm]
+storage_type = "chroma"
+enabled = true
+chroma_mode = "server"
+chroma_host = "chroma.internal"
+chroma_port = 8443
+chroma_ssl = true
+chroma_tenant = "tenant-a"
+chroma_database = "database-a"
+chroma_auth_token_env = "DMF_CHROMA_TOKEN"
+""".strip(),
+    )
+
+    cfg = load_dmf_config(path)
+
+    assert cfg.ltm.chroma_mode == "server"
+    assert cfg.ltm.chroma_host == "chroma.internal"
+    assert cfg.ltm.chroma_port == 8443
+    assert cfg.ltm.chroma_ssl is True
+    assert cfg.ltm.chroma_tenant == "tenant-a"
+    assert cfg.ltm.chroma_database == "database-a"
+    assert cfg.ltm.chroma_auth_token_env == "DMF_CHROMA_TOKEN"
+
+
+def test_load_dmf_config_rejects_unknown_chroma_mode_for_any_backend(
+    tmp_path: Path,
+) -> None:
+    path = _write_toml(
+        tmp_path,
+        """
+[ltm]
+storage_type = "file"
+chroma_mode = "cluster"
+""".strip(),
+    )
+
+    with pytest.raises(ValueError, match=r"ltm.chroma_mode must be one of"):
+        load_dmf_config(path)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("chroma_host", '"   "', "ltm.chroma_host"),
+        ("chroma_tenant", '""', "ltm.chroma_tenant"),
+        ("chroma_database", '"  "', "ltm.chroma_database"),
+    ],
+)
+def test_load_dmf_config_rejects_empty_active_server_identifiers(
+    tmp_path: Path,
+    field: str,
+    value: str,
+    message: str,
+) -> None:
+    path = _write_toml(
+        tmp_path,
+        "\n".join(
+            [
+                "[ltm]",
+                'storage_type = "chroma"',
+                'chroma_mode = "server"',
+                f"{field} = {value}",
+            ]
+        ),
+    )
+
+    with pytest.raises(ValueError, match=message):
+        load_dmf_config(path)
+
+
+@pytest.mark.parametrize("port", [0, -1, 65536])
+def test_load_dmf_config_rejects_invalid_active_server_port(
+    tmp_path: Path,
+    port: int,
+) -> None:
+    path = _write_toml(
+        tmp_path,
+        "\n".join(
+            [
+                "[ltm]",
+                'storage_type = "chroma"',
+                'chroma_mode = "server"',
+                f"chroma_port = {port}",
+            ]
+        ),
+    )
+
+    with pytest.raises(ValueError, match="ltm.chroma_port"):
+        load_dmf_config(path)
+
+
+@pytest.mark.parametrize(
+    ("storage_type", "enabled"),
+    [("file", True), ("null", True), ("chroma", False)],
+)
+def test_inactive_chroma_server_does_not_validate_connection_fields(
+    tmp_path: Path,
+    storage_type: str,
+    enabled: bool,
+) -> None:
+    path = _write_toml(
+        tmp_path,
+        "\n".join(
+            [
+                "[ltm]",
+                f'storage_type = "{storage_type}"',
+                f"enabled = {str(enabled).lower()}",
+                'chroma_mode = "server"',
+                'chroma_host = ""',
+                "chroma_port = 0",
+                'chroma_tenant = ""',
+                'chroma_database = ""',
+            ]
+        ),
+    )
+
+    cfg = load_dmf_config(path)
+
+    assert cfg.ltm.chroma_mode == "server"
+
+
+def test_load_dmf_config_rejects_whitespace_auth_env_name(tmp_path: Path) -> None:
+    path = _write_toml(
+        tmp_path,
+        """
+[ltm]
+chroma_auth_token_env = "   "
+""".strip(),
+    )
+
+    with pytest.raises(ValueError, match="ltm.chroma_auth_token_env"):
+        load_dmf_config(path)
+
+
 def test_load_dmf_config_parses_pruning_priority_section(tmp_path: Path) -> None:
     path = _write_toml(
         tmp_path,
