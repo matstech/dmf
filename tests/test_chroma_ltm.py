@@ -536,6 +536,30 @@ class TestChromaLTMHookCards:
 
         assert hits == []
 
+    def test_search_cards_propagates_source_lookup_errors(self) -> None:
+        card_meta = {
+            "card_id": "card:record:7:0",
+            "source_record_id": "record:7",
+            "kind": "event",
+        }
+        hook, main_col, cards_col = self._make_hook_with_fake_collections(cards_enabled=True)
+        assert cards_col is not None
+        cards_col._query_result = {
+            "metadatas": [[card_meta]],
+            "distances": [[0.10]],
+        }
+        backend_error = RuntimeError("backend unavailable")
+
+        def fail_lookup(ids, include=None):  # noqa: ANN001, ARG001
+            raise backend_error
+
+        main_col.get = fail_lookup  # type: ignore[assignment]
+
+        with pytest.raises(RuntimeError) as raised:
+            hook.search_cards([0.3, 0.4], k=1)
+
+        assert raised.value is backend_error
+
     def test_search_cards_skips_hits_over_distance_threshold(self) -> None:
         card_meta = {
             "card": json.dumps({"card_id": "card:record:7:0"}),
