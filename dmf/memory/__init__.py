@@ -30,7 +30,6 @@ from dmf.memory.answerability_rerank import (
     AnswerabilityRankerConfig,
     rerank_answerable_evidence,
 )
-from dmf.memory.chroma_ltm import ChromaLTMHook
 from dmf.memory.card_store import JsonlMemoryCardStore
 from dmf.memory.candidate_generation import (
     CandidateGenerationConfig,
@@ -51,7 +50,7 @@ from dmf.memory.evidence_assembly import (
     expand_card_evidence,
     render_evidence_context,
 )
-from dmf.memory.ltm_engine import FileLTMHook
+from dmf.memory.ltm_hooks import ChromaLTMHook, FileLTMHook
 from dmf.memory.query_understanding import QueryUnderstandingParser, parse_query_frame
 from dmf.memory.temporal_memory import TemporalMemory
 

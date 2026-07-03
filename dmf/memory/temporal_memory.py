@@ -433,14 +433,14 @@ class TemporalMemory:
         elif not config.ltm.enabled:
             resolved_hook = NullLTMHook()
         elif config.ltm.storage_type == LTM_BACKEND_FILE:
-            from dmf.memory.ltm_engine import FileLTMHook  # deferred import
+            from dmf.memory.ltm_hooks import FileLTMHook  # deferred import
             resolved_hook = FileLTMHook(
                 config.ltm.storage_path,
                 cards_enabled=config.ltm.cards_enabled,
                 cards_path=config.ltm.cards_path,
             )
         elif config.ltm.storage_type == LTM_BACKEND_CHROMA:
-            from dmf.memory.chroma_ltm import ChromaLTMHook  # deferred import
+            from dmf.memory.ltm_hooks import ChromaLTMHook  # deferred import
             resolved_hook = ChromaLTMHook(
                 collection_name=config.ltm.collection_name,
                 persist_directory=config.ltm.chroma_path,

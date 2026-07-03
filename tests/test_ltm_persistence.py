@@ -98,7 +98,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from dmf.memory.ltm_engine import FileLTMHook
+from dmf.memory.ltm_hooks import FileLTMHook
 from dmf.models.analysis import (
     AnalysisReport,
     InteractionProvenance,
