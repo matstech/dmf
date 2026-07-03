@@ -35,11 +35,14 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
-import chromadb
-from chromadb.config import Settings
+from chromadb.api import ClientAPI
 
 from dmf.memory.card_projection import MemoryCardProjector
 from dmf.memory.card_store import JsonlMemoryCardStore
+from dmf.memory.ltm_hooks.chroma_client import (
+    ChromaConnectionConfig,
+    build_chroma_client,
+)
 from dmf.models.memory import MemoryEntry
 from dmf.models.raw_ltm import RawLTMRecord, RawRecallHit
 from dmf.utils.config import VectorConfig
@@ -67,6 +70,8 @@ class ChromaLTMHook:
         cards_path: Optional JSONL audit path for projected cards.
         card_store: Optional prebuilt JSONL card store.
         cards_collection_name: Chroma collection used for projected cards.
+        connection: Optional embedded/server connection configuration.
+        client: Optional pre-built client, used without wrapping.
 
     Returns:
         Chroma-backed LTM hook instance.
@@ -92,6 +97,8 @@ class ChromaLTMHook:
         cards_path: Path | str | None = None,
         card_store: JsonlMemoryCardStore | None = None,
         cards_collection_name: str = DEFAULT_LTM_CARDS_COLLECTION_NAME,
+        connection: ChromaConnectionConfig | None = None,
+        client: ClientAPI | None = None,
     ) -> None:
         self._distance_threshold = distance_threshold
         self._lock = threading.Lock()
@@ -105,13 +112,15 @@ class ChromaLTMHook:
             self._card_store = JsonlMemoryCardStore(cards_path or default_cards_path)
 
         persist_path = Path(persist_directory)
-        persist_path.mkdir(parents=True, exist_ok=True)
         self._persist_directory: Path = persist_path
 
-        self._client = chromadb.PersistentClient(
-            path=str(persist_path),
-            settings=Settings(anonymized_telemetry=False),
-        )
+        if client is not None:
+            self._client = client
+        else:
+            self._client = build_chroma_client(
+                connection
+                or ChromaConnectionConfig(persist_directory=persist_directory)
+            )
         self._collection = self._client.get_or_create_collection(
             name=collection_name,
             metadata={"hnsw:space": "cosine"},
@@ -268,13 +277,10 @@ class ChromaLTMHook:
             source_record_id = meta.get("source_record_id")
             if not source_record_id:
                 continue
-            try:
-                raw_results = self._collection.get(
-                    ids=[str(source_record_id)],
-                    include=["metadatas"],
-                )
-            except Exception:  # noqa: BLE001
-                continue
+            raw_results = self._collection.get(
+                ids=[str(source_record_id)],
+                include=["metadatas"],
+            )
             raw_metas = raw_results.get("metadatas") or []
             if not raw_metas:
                 continue
