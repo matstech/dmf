@@ -87,7 +87,14 @@ from dmf.utils.constants import (
     DEFAULT_EMBEDDING_MODEL,
     DEFAULT_LTM_CARDS_COLLECTION_NAME,
     DEFAULT_LTM_CARDS_PATH,
+    DEFAULT_LTM_CHROMA_AUTH_TOKEN_ENV,
+    DEFAULT_LTM_CHROMA_DATABASE,
+    DEFAULT_LTM_CHROMA_HOST,
+    DEFAULT_LTM_CHROMA_MODE,
     DEFAULT_LTM_CHROMA_PATH,
+    DEFAULT_LTM_CHROMA_PORT,
+    DEFAULT_LTM_CHROMA_SSL,
+    DEFAULT_LTM_CHROMA_TENANT,
     DEFAULT_LTM_COLLECTION_NAME,
     DEFAULT_LTM_DISTANCE_THRESHOLD,
     DEFAULT_LTM_RECALL_LIMIT,
@@ -131,8 +138,11 @@ from dmf.utils.constants import (
     DEFAULT_TOKEN_BUDGET,
     DEFAULT_VECTOR_DIM,
     DEFAULT_WINDOW_SIZE,
+    LTM_BACKEND_CHROMA,
     LTM_BACKEND_FILE,
+    LTM_CHROMA_MODE_SERVER,
     SUPPORTED_LTM_BACKENDS,
+    SUPPORTED_LTM_CHROMA_MODES,
 )
 
 # Default path: project root / dmf_settings.toml
@@ -181,7 +191,7 @@ def _validate_memory_tiers(tiers: MemoryTiersSettings) -> None:
 
 
 def _validate_ltm_settings(ltm: LTMSettings) -> None:
-    """Validate the configured LTM backend selection."""
+    """Validate the configured LTM backend and Chroma connection settings."""
     supported = SUPPORTED_LTM_BACKENDS
     if ltm.storage_type not in supported:
         joined = ", ".join(sorted(supported))
@@ -189,6 +199,38 @@ def _validate_ltm_settings(ltm: LTMSettings) -> None:
             f"ltm.storage_type must be one of {{{joined}}}; "
             f"got {ltm.storage_type!r}"
         )
+
+    supported_modes = SUPPORTED_LTM_CHROMA_MODES
+    if ltm.chroma_mode not in supported_modes:
+        joined = ", ".join(sorted(supported_modes))
+        raise ValueError(
+            f"ltm.chroma_mode must be one of {{{joined}}}; "
+            f"got {ltm.chroma_mode!r}"
+        )
+
+    if ltm.chroma_auth_token_env and not ltm.chroma_auth_token_env.strip():
+        raise ValueError(
+            "ltm.chroma_auth_token_env must not contain only whitespace"
+        )
+
+    server_is_active = (
+        ltm.enabled
+        and ltm.storage_type == LTM_BACKEND_CHROMA
+        and ltm.chroma_mode == LTM_CHROMA_MODE_SERVER
+    )
+    if not server_is_active:
+        return
+
+    if not ltm.chroma_host.strip():
+        raise ValueError("ltm.chroma_host must not be empty in server mode")
+    if not 1 <= ltm.chroma_port <= 65535:
+        raise ValueError(
+            "ltm.chroma_port must be between 1 and 65535 in server mode"
+        )
+    if not ltm.chroma_tenant.strip():
+        raise ValueError("ltm.chroma_tenant must not be empty in server mode")
+    if not ltm.chroma_database.strip():
+        raise ValueError("ltm.chroma_database must not be empty in server mode")
 
 
 def _validate_retrieval_settings(retrieval: RetrievalSettings) -> None:
@@ -516,6 +558,20 @@ class LTMSettings:
             Persist directory for the ChromaDB vector store
             (for ``storage_type="chroma"``).  Created automatically.
             Default: ``"data/ltm_chroma"``.
+        chroma_mode : str
+            Chroma connection mode: ``"embedded"`` or ``"server"``.
+        chroma_host : str
+            Chroma server hostname.
+        chroma_port : int
+            Chroma server HTTP port.
+        chroma_ssl : bool
+            Whether to use HTTPS for a Chroma server connection.
+        chroma_tenant : str
+            Chroma tenant used by embedded and server clients.
+        chroma_database : str
+            Chroma database used by embedded and server clients.
+        chroma_auth_token_env : str
+            Optional environment-variable name containing a server Bearer token.
         collection_name : str
             ChromaDB collection name.  Changing this creates an independent
             namespace — useful for separating sessions or benchmark runs.
@@ -541,6 +597,13 @@ class LTMSettings:
         storage_type: See the function signature and surrounding type hints.
         storage_path: See the function signature and surrounding type hints.
         chroma_path: See the function signature and surrounding type hints.
+        chroma_mode: See the function signature and surrounding type hints.
+        chroma_host: See the function signature and surrounding type hints.
+        chroma_port: See the function signature and surrounding type hints.
+        chroma_ssl: See the function signature and surrounding type hints.
+        chroma_tenant: See the function signature and surrounding type hints.
+        chroma_database: See the function signature and surrounding type hints.
+        chroma_auth_token_env: See the function signature and surrounding type hints.
         collection_name: See the function signature and surrounding type hints.
         recall_limit: See the function signature and surrounding type hints.
         distance_threshold: See the function signature and surrounding type hints.
@@ -566,6 +629,13 @@ class LTMSettings:
     cards_enabled: bool = False
     cards_path: str = DEFAULT_LTM_CARDS_PATH
     cards_collection_name: str = DEFAULT_LTM_CARDS_COLLECTION_NAME
+    chroma_mode: str = DEFAULT_LTM_CHROMA_MODE
+    chroma_host: str = DEFAULT_LTM_CHROMA_HOST
+    chroma_port: int = DEFAULT_LTM_CHROMA_PORT
+    chroma_ssl: bool = DEFAULT_LTM_CHROMA_SSL
+    chroma_tenant: str = DEFAULT_LTM_CHROMA_TENANT
+    chroma_database: str = DEFAULT_LTM_CHROMA_DATABASE
+    chroma_auth_token_env: str = DEFAULT_LTM_CHROMA_AUTH_TOKEN_ENV
 
 
 @dataclass(frozen=True)
@@ -729,6 +799,13 @@ class _LTMSettingsModel(_ConfigSectionModel):
     storage_type: str = LTMSettings.storage_type
     storage_path: str = LTMSettings.storage_path
     chroma_path: str = LTMSettings.chroma_path
+    chroma_mode: str = LTMSettings.chroma_mode
+    chroma_host: str = LTMSettings.chroma_host
+    chroma_port: int = LTMSettings.chroma_port
+    chroma_ssl: bool = LTMSettings.chroma_ssl
+    chroma_tenant: str = LTMSettings.chroma_tenant
+    chroma_database: str = LTMSettings.chroma_database
+    chroma_auth_token_env: str = LTMSettings.chroma_auth_token_env
     collection_name: str = LTMSettings.collection_name
     recall_limit: int = LTMSettings.recall_limit
     distance_threshold: float = LTMSettings.distance_threshold

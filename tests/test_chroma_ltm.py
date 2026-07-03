@@ -24,11 +24,14 @@ from __future__ import annotations
 
 import json
 import threading
+from pathlib import Path
 
 import numpy as np
 import pytest
 
+from dmf.memory import temporal_memory
 from dmf.memory.ltm_hooks import ChromaLTMHook
+from dmf.memory.ltm_hooks.chroma_client import ChromaConnectionMode
 from dmf.models.analysis import AnalysisReport
 from dmf.models.memory import MemoryEntry
 from dmf.models.raw_ltm import RawLTMRecord, RawRecallHit
@@ -365,6 +368,10 @@ class TestChromaLTMHook:
         assert captured["distance_threshold"] == 0.42
         assert captured["cards_enabled"] is True
         assert captured["cards_path"] == str(tmp_path / "cards.jsonl")
+        connection = captured["connection"]
+        assert connection.mode is ChromaConnectionMode.EMBEDDED
+        assert connection.persist_directory == str(tmp_path / "chroma")
+        assert connection.auth_token is None
 
     def test_from_dmf_config_passes_cards_collection_name_to_chroma_hook(
         self,
@@ -389,6 +396,147 @@ class TestChromaLTMHook:
         TemporalMemory.from_dmf_config(cfg)
 
         assert captured["cards_collection_name"] == "my_cards"
+
+    def test_from_dmf_config_passes_server_connection_without_auth(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        captured: dict = {}
+        monkeypatch.setattr(
+            ChromaLTMHook,
+            "__init__",
+            lambda self, **kwargs: captured.update(kwargs),  # noqa: ARG005
+        )
+        persist_directory = tmp_path / "must-not-exist"
+        cfg = DMFConfig(
+            ltm=LTMSettings(
+                storage_type="chroma",
+                chroma_path=str(persist_directory),
+                chroma_mode="server",
+                chroma_host="chroma.internal",
+                chroma_port=8443,
+                chroma_ssl=True,
+                chroma_tenant="tenant-a",
+                chroma_database="database-a",
+            )
+        )
+
+        TemporalMemory.from_dmf_config(cfg)
+
+        connection = captured["connection"]
+        assert connection.mode is ChromaConnectionMode.SERVER
+        assert connection.host == "chroma.internal"
+        assert connection.port == 8443
+        assert connection.ssl is True
+        assert connection.tenant == "tenant-a"
+        assert connection.database == "database-a"
+        assert connection.auth_token is None
+        assert not persist_directory.exists()
+
+    def test_from_dmf_config_resolves_server_auth_token_from_environment(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        captured: dict = {}
+        monkeypatch.setattr(
+            ChromaLTMHook,
+            "__init__",
+            lambda self, **kwargs: captured.update(kwargs),  # noqa: ARG005
+        )
+        monkeypatch.setenv("DMF_CHROMA_TOKEN", "top-secret-token")
+        cfg = DMFConfig(
+            ltm=LTMSettings(
+                storage_type="chroma",
+                chroma_mode="server",
+                chroma_auth_token_env="DMF_CHROMA_TOKEN",
+            )
+        )
+
+        TemporalMemory.from_dmf_config(cfg)
+
+        connection = captured["connection"]
+        assert connection.auth_token == "top-secret-token"
+        assert "top-secret-token" not in repr(connection)
+
+    @pytest.mark.parametrize("value", [None, "", "   "])
+    def test_from_dmf_config_fails_when_configured_auth_token_is_unavailable(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        value: str | None,
+    ) -> None:
+        env_name = "DMF_MISSING_CHROMA_TOKEN"
+        if value is None:
+            monkeypatch.delenv(env_name, raising=False)
+        else:
+            monkeypatch.setenv(env_name, value)
+        monkeypatch.setattr(
+            ChromaLTMHook,
+            "__init__",
+            lambda self, **kwargs: pytest.fail(f"unexpected hook: {kwargs}"),
+        )
+        cfg = DMFConfig(
+            ltm=LTMSettings(
+                storage_type="chroma",
+                chroma_mode="server",
+                chroma_auth_token_env=env_name,
+            )
+        )
+
+        with pytest.raises(ValueError, match=env_name) as exc_info:
+            TemporalMemory.from_dmf_config(cfg)
+
+        assert "Authorization" not in str(exc_info.value)
+
+    @pytest.mark.parametrize(
+        ("storage_type", "enabled"),
+        [("file", True), ("null", True), ("chroma", False)],
+    )
+    def test_non_active_chroma_backends_do_not_read_auth_environment(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        storage_type: str,
+        enabled: bool,
+    ) -> None:
+        monkeypatch.setattr(
+            temporal_memory.os,
+            "getenv",
+            lambda name: pytest.fail(f"unexpected env read: {name}"),
+        )
+        cfg = DMFConfig(
+            ltm=LTMSettings(
+                storage_type=storage_type,
+                storage_path=str(tmp_path / "archive.jsonl"),
+                enabled=enabled,
+                chroma_mode="server",
+                chroma_auth_token_env="DMF_CHROMA_TOKEN",
+            )
+        )
+
+        TemporalMemory.from_dmf_config(cfg)
+
+    def test_explicit_hook_prevents_auth_environment_resolution(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(
+            temporal_memory.os,
+            "getenv",
+            lambda name: pytest.fail(f"unexpected env read: {name}"),
+        )
+        explicit = object()
+        cfg = DMFConfig(
+            ltm=LTMSettings(
+                storage_type="chroma",
+                chroma_mode="server",
+                chroma_auth_token_env="DMF_CHROMA_TOKEN",
+            )
+        )
+
+        tm = TemporalMemory.from_dmf_config(cfg, ltm_hook=explicit)  # type: ignore[arg-type]
+
+        assert tm._ltm_hook is explicit
 
 
 class TestChromaLTMHookCards:

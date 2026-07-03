@@ -93,6 +93,7 @@ All per-entry decay calculations are sub-microsecond (one ``math.exp``).
 
 from __future__ import annotations
 
+import os
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -441,6 +442,35 @@ class TemporalMemory:
             )
         elif config.ltm.storage_type == LTM_BACKEND_CHROMA:
             from dmf.memory.ltm_hooks import ChromaLTMHook  # deferred import
+            from dmf.memory.ltm_hooks.chroma_client import (
+                ChromaConnectionConfig,
+                ChromaConnectionMode,
+            )
+
+            mode = ChromaConnectionMode(config.ltm.chroma_mode)
+            auth_token = None
+            if (
+                mode is ChromaConnectionMode.SERVER
+                and config.ltm.chroma_auth_token_env
+            ):
+                env_name = config.ltm.chroma_auth_token_env.strip()
+                auth_token = os.getenv(env_name)
+                if auth_token is None or not auth_token.strip():
+                    raise ValueError(
+                        f"Chroma auth token environment variable {env_name!r} "
+                        "is missing or empty"
+                    )
+
+            connection = ChromaConnectionConfig(
+                mode=mode,
+                persist_directory=config.ltm.chroma_path,
+                host=config.ltm.chroma_host,
+                port=config.ltm.chroma_port,
+                ssl=config.ltm.chroma_ssl,
+                tenant=config.ltm.chroma_tenant,
+                database=config.ltm.chroma_database,
+                auth_token=auth_token,
+            )
             resolved_hook = ChromaLTMHook(
                 collection_name=config.ltm.collection_name,
                 persist_directory=config.ltm.chroma_path,
@@ -448,6 +478,7 @@ class TemporalMemory:
                 cards_enabled=config.ltm.cards_enabled,
                 cards_path=config.ltm.cards_path,
                 cards_collection_name=config.ltm.cards_collection_name,
+                connection=connection,
             )
         elif config.ltm.storage_type == LTM_BACKEND_NULL:
             resolved_hook = NullLTMHook()

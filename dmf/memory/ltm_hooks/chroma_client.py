@@ -35,10 +35,19 @@ from pathlib import Path
 import chromadb
 from chromadb.api import ClientAPI
 from chromadb.api.shared_system_client import SharedSystemClient
-from chromadb.config import DEFAULT_DATABASE, DEFAULT_TENANT, Settings
+from chromadb.config import Settings
 
 from dmf.memory.ltm_hooks.chroma_retry import RetryingFastAPI
-from dmf.utils.constants import DEFAULT_LTM_CHROMA_PATH
+from dmf.utils.constants import (
+    DEFAULT_LTM_CHROMA_DATABASE,
+    DEFAULT_LTM_CHROMA_HOST,
+    DEFAULT_LTM_CHROMA_PATH,
+    DEFAULT_LTM_CHROMA_PORT,
+    DEFAULT_LTM_CHROMA_SSL,
+    DEFAULT_LTM_CHROMA_TENANT,
+    LTM_CHROMA_MODE_EMBEDDED,
+    LTM_CHROMA_MODE_SERVER,
+)
 
 _BACKEND_INSTALL_LOCK = threading.RLock()
 _RETRYING_FASTAPI_FQN = f"{RetryingFastAPI.__module__}.{RetryingFastAPI.__qualname__}"
@@ -47,8 +56,8 @@ _RETRYING_FASTAPI_FQN = f"{RetryingFastAPI.__module__}.{RetryingFastAPI.__qualna
 class ChromaConnectionMode(str, Enum):
     """Supported Chroma deployment modes."""
 
-    EMBEDDED = "embedded"
-    SERVER = "server"
+    EMBEDDED = LTM_CHROMA_MODE_EMBEDDED
+    SERVER = LTM_CHROMA_MODE_SERVER
 
 
 @dataclass(frozen=True)
@@ -57,11 +66,11 @@ class ChromaConnectionConfig:
 
     mode: ChromaConnectionMode = ChromaConnectionMode.EMBEDDED
     persist_directory: Path | str = DEFAULT_LTM_CHROMA_PATH
-    host: str = "localhost"
-    port: int = 8000
-    ssl: bool = False
-    tenant: str = DEFAULT_TENANT
-    database: str = DEFAULT_DATABASE
+    host: str = DEFAULT_LTM_CHROMA_HOST
+    port: int = DEFAULT_LTM_CHROMA_PORT
+    ssl: bool = DEFAULT_LTM_CHROMA_SSL
+    tenant: str = DEFAULT_LTM_CHROMA_TENANT
+    database: str = DEFAULT_LTM_CHROMA_DATABASE
     auth_token: str | None = field(default=None, repr=False)
 
 
