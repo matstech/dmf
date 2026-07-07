@@ -41,3 +41,24 @@ export OPENAI_API_KEY="sk-..."
 # Run the script injecting litellm and the current directory (*dmf*) as dependencies:
 uv run --with litellm --with .. python litellm_chroma/agent.py
 ```
+
+## Chroma server mode
+
+The Chroma example defaults to embedded persistence. To use the version-pinned
+local server, start it from the repository root with `make chroma-up`, then set
+these values in `litellm_chroma/dmf_settings.toml`:
+
+```toml
+chroma_mode = "server"
+chroma_host = "localhost"
+chroma_port = 8000
+chroma_ssl = false
+chroma_tenant = "default_tenant"
+chroma_database = "default_database"
+chroma_auth_token_env = ""
+```
+
+Use `make chroma-down` from the repository root when finished. It preserves the
+Compose data volume. For an authenticated external server, set
+`chroma_auth_token_env` to an environment-variable name and export the token in
+that variable rather than writing the token into TOML.
