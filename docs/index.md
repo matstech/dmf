@@ -2,46 +2,70 @@
   <img src="assets/logo.svg" alt="DMF Logo" width="65"/>
 </p>
 
-## Quickstart & Usage
+# Deterministic Memory Framework
 
-The main entry point for querying the active memory is the `Memory` class. To initialize the framework, you typically provide a configuration, an embedding engine, and a temporal memory instance (which wraps your chosen Long-Term Memory backend, like ChromaDB).
+DMF provides a deterministic memory lifecycle for conversational applications:
+interaction analysis, active-memory pruning, long-term archival, semantic
+retrieval, reranking, and prompt-ready context rendering.
 
-Here is an example of how to configure and use these core APIs:
+## Quickstart
+
+The recommended entry point is the project configuration. It selects the LTM
+backend and keeps application wiring independent from whether Chroma runs
+embedded or as a separate server.
 
 ```python
-from dmf.utils.config_loader import DMFConfig
-from dmf.analysis import EmbeddingEngine, NLPEngine
-from dmf.memory import ChromaLTMHook, TemporalMemory, Memory
+from dmf.analysis import EmbeddingEngine, ScoringEngine
+from dmf.memory import Memory, TemporalMemory
+from dmf.runtime.pipeline import InteractionPipeline
+from dmf.utils.config import VectorConfig
+from dmf.utils.config_loader import load_dmf_config
 
-# 1. Load the configuration
-config = DMFConfig.load("dmf_settings.toml")
+config = load_dmf_config("dmf_settings.toml")
+pipeline = InteractionPipeline.from_dmf_config(config)
+scoring = ScoringEngine.from_dmf_config(config)
+temporal_memory = TemporalMemory.from_dmf_config(config)
 
-# 2. Initialize engines and LTM hook
-embedding_engine = EmbeddingEngine(model_name=config.analysis.embedding_model)
-nlp_engine = NLPEngine()
-ltm_hook = ChromaLTMHook(persist_directory="./data/chroma")
-
-# 3. Initialize TemporalMemory
-temporal_memory = TemporalMemory(
-    ltm_hook=ltm_hook,
-    nlp_engine=nlp_engine,
-    time_decay_halflife=config.temporal.time_decay_halflife,
-    recency_window_size=config.temporal.recency_window_size
+embedding_engine = EmbeddingEngine(
+    VectorConfig(
+        model_name=config.nlp.model_name,
+        vector_dim=config.nlp.vector_dim,
+        window_size=config.capacity.window_size,
+    )
 )
+memory = Memory.from_dmf_config(config, temporal_memory, embedding_engine)
 
-# 4. Initialize the Memory facade
-memory = Memory.from_dmf_config(
-    config=config,
-    temporal_memory=temporal_memory,
-    embedding_engine=embedding_engine
-)
+text = "We decided to use a separate service for the vector database."
+report, vector = pipeline.analyze_interaction_with_vector(text)
+if vector is not None:
+    scoring.calculate_score(report, text=text)
+    temporal_memory.add_interaction(text, report, vector)
 
-# --- Usage ---
-
-# Retrieve structured evidence
-evidence = memory.retrieve("What did we discuss about the new architecture?")
-
-# Or render a prompt-ready context string directly
-context_string = memory.render_context("What did we discuss about the new architecture?")
-print(context_string)
+context = memory.render_context("What did we decide about the architecture?")
+print(context)
 ```
+
+`chroma_mode = "embedded"` is the backward-compatible default. Switching to
+`chroma_mode = "server"` changes the connection strategy without changing the
+application code above.
+
+## Long-term memory backends
+
+DMF includes:
+
+- `FileLTMHook`, an append-only JSONL archival backend;
+- `ChromaLTMHook` in embedded mode, with local persistent storage;
+- `ChromaLTMHook` in server mode, using a separately managed Chroma service;
+- `NullLTMHook`, for disabled persistence and isolated tests.
+
+See [LTM Backends](ltm_backends.md) for deployment modes, authentication,
+retry behavior, migration from legacy imports, Docker integration, and the
+local Ollama benchmark.
+
+## Next steps
+
+- [Configuration reference](configuration.md)
+- [LTM backends and Chroma server deployment](ltm_backends.md)
+- [Context rendering](prompt_structure.md)
+- [Public API](api/public.md)
+- [Internal API](api/internals.md)

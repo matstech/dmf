@@ -59,9 +59,10 @@ plugins:
 nav:
   - Home: index.md
   - Configuration: configuration.md
+  - LTM Backends: ltm_backends.md
   - Context Rendering: prompt_structure.md
   - API Reference:
-      - APIs: api/public.md
+      - Public API: api/public.md
       - Internals: api/internals.md
 
 markdown_extensions:
