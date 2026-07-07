@@ -652,6 +652,7 @@ class TestChromaLTMHookCards:
         }
         # Configure the main collection to resolve the source raw record
         main_col.get = lambda ids, include=None: {  # type: ignore[assignment]
+            "ids": ["record:7"],
             "metadatas": [{"raw_record": json.dumps(raw_record_dict)}]
         }
 
@@ -661,6 +662,51 @@ class TestChromaLTMHookCards:
         assert hits[0].record.record_id == "record:7"
         assert hits[0].distance == pytest.approx(0.15)
         assert hits[0].similarity_score == pytest.approx(0.85)
+
+    def test_search_cards_deduplicates_batch_lookup_ids_and_preserves_hits(self) -> None:
+        card_metas = [
+            {
+                "card_id": "card:record:7:0",
+                "source_record_id": "record:7",
+                "kind": "event",
+            },
+            {
+                "card_id": "card:record:7:1",
+                "source_record_id": "record:7",
+                "kind": "fact",
+            },
+        ]
+        hook, main_col, cards_col = self._make_hook_with_fake_collections(
+            cards_enabled=True
+        )
+        assert cards_col is not None
+        cards_col._query_result = {
+            "metadatas": [card_metas],
+            "distances": [[0.10, 0.20]],
+        }
+        requested_ids: list[list[str]] = []
+
+        def batch_get(ids, include=None):  # noqa: ANN001, ARG001
+            requested_ids.append(ids)
+            return {
+                "ids": ["record:7"],
+                "metadatas": [
+                    {
+                        "raw_record": json.dumps(
+                            _raw_record_dict(7, "shared source record")
+                        )
+                    }
+                ],
+            }
+
+        main_col.get = batch_get  # type: ignore[assignment]
+
+        hits = hook.search_cards([0.3, 0.4], k=2)
+
+        assert requested_ids == [["record:7"]]
+        assert [hit.record.record_id for hit in hits] == ["record:7", "record:7"]
+        assert [hit.distance for hit in hits] == pytest.approx([0.10, 0.20])
+        assert [hit.rank_hint for hit in hits] == [0, 1]
 
     def test_search_cards_skips_card_when_source_record_not_found(self) -> None:
         card_meta = {
@@ -678,7 +724,10 @@ class TestChromaLTMHookCards:
             "distances": [[0.10]],
         }
         # Source record not found: return empty metadatas
-        main_col.get = lambda ids, include=None: {"metadatas": []}  # type: ignore[assignment]
+        main_col.get = lambda ids, include=None: {  # type: ignore[assignment]
+            "ids": [],
+            "metadatas": [],
+        }
 
         hits = hook.search_cards([0.3, 0.4], k=1)
 
