@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "dmf-ltm-local-v1",
+  "seed": [
+    {"id": "pet", "text": "Il mio gatto si chiama Miso.", "role": "user"},
+    {"id": "meeting", "text": "La riunione del team è martedì alle 14.", "role": "user"},
+    {"id": "theme", "text": "Preferisco il tema scuro.", "role": "user", "is_preference_update": true},
+    {"id": "style", "text": "Preferisco risposte concise e a punti.", "role": "user", "is_preference_update": true},
+    {"id": "api_constraint", "text": "Per questo progetto non usare API esterne.", "role": "user", "is_constraint": true},
+    {"id": "format_constraint", "text": "Gli export devono essere in formato JSON.", "role": "user", "is_constraint": true},
+    {"id": "budget_old", "text": "Il budget del progetto è 1200 euro.", "role": "user"},
+    {"id": "budget_current", "text": "Correzione: il budget del progetto è 1500 euro, non 1200.", "role": "user", "is_user_correction": true},
+    {"id": "office_old", "text": "L'ufficio si trova a Roma.", "role": "user"},
+    {"id": "office_current", "text": "Correzione: l'ufficio ora si trova a Milano, non a Roma.", "role": "user", "is_user_correction": true},
+    {"id": "project_old", "text": "In passato lavoravo su Project Alpha.", "role": "user"},
+    {"id": "project_current", "text": "Ora lavoro su Project Beta; Project Alpha è concluso.", "role": "user"},
+    {"id": "database_old", "text": "In passato usavamo SQLite come database.", "role": "user"},
+    {"id": "database_current", "text": "Ora usiamo PostgreSQL; SQLite era il database precedente.", "role": "user"}
+  ],
+  "filler": {
+    "max_turns": 40,
+    "template": "Nota neutra di pressione memoria numero {index}: contenuto sintetico senza nuovi fatti utente."
+  },
+  "cases": [
+    {
+      "id": "fact_pet",
+      "category": "fact",
+      "question": "Come si chiama il mio gatto?",
+      "expected_answer": "Il gatto si chiama Miso.",
+      "evidence_terms": [["miso"], ["gatto"]],
+      "answer_terms": [["miso"]],
+      "obsolete_terms": []
+    },
+    {
+      "id": "fact_meeting",
+      "category": "fact",
+      "question": "Quando è la riunione del team?",
+      "expected_answer": "La riunione è martedì alle 14.",
+      "evidence_terms": [["martedì", "martedi"], ["14"]],
+      "answer_terms": [["martedì", "martedi"], ["14"]],
+      "obsolete_terms": []
+    },
+    {
+      "id": "preference_theme",
+      "category": "preference",
+      "question": "Quale tema preferisco?",
+      "expected_answer": "Preferisci il tema scuro.",
+      "evidence_terms": [["tema"], ["scuro", "dark"]],
+      "answer_terms": [["scuro", "dark"]],
+      "obsolete_terms": []
+    },
+    {
+      "id": "preference_style",
+      "category": "preference",
+      "question": "Come preferisco le risposte?",
+      "expected_answer": "Preferisci risposte concise e a punti.",
+      "evidence_terms": [["concise", "brevi"], ["punti", "elenco"]],
+      "answer_terms": [["concise", "brevi"], ["punti", "elenco"]],
+      "obsolete_terms": []
+    },
+    {
+      "id": "constraint_api",
+      "category": "constraint",
+      "question": "Quale vincolo vale per le API?",
+      "expected_answer": "Non usare API esterne.",
+      "evidence_terms": [["api"], ["non usare", "evitare"], ["esterne"]],
+      "answer_terms": [["api"], ["non usare", "evitare"], ["esterne"]],
+      "obsolete_terms": []
+    },
+    {
+      "id": "constraint_format",
+      "category": "constraint",
+      "question": "In quale formato devono essere gli export?",
+      "expected_answer": "Gli export devono essere in formato JSON.",
+      "evidence_terms": [["export"], ["json"]],
+      "answer_terms": [["json"]],
+      "obsolete_terms": []
+    },
+    {
+      "id": "correction_budget",
+      "category": "correction",
+      "question": "Qual è il budget corrente del progetto?",
+      "expected_answer": "Il budget corrente è 1500 euro, non 1200.",
+      "evidence_terms": [["1500"], ["budget"]],
+      "answer_terms": [["1500"]],
+      "obsolete_terms": [["1200"]]
+    },
+    {
+      "id": "correction_city",
+      "category": "correction",
+      "question": "Dove si trova ora l'ufficio?",
+      "expected_answer": "L'ufficio ora si trova a Milano, non a Roma.",
+      "evidence_terms": [["milano"], ["ufficio"]],
+      "answer_terms": [["milano"]],
+      "obsolete_terms": [["roma"]]
+    },
+    {
+      "id": "state_project",
+      "category": "current_vs_past",
+      "question": "Su quale progetto lavoro ora?",
+      "expected_answer": "Ora lavori su Project Beta; Project Alpha è concluso.",
+      "evidence_terms": [["project beta", "progetto beta"], ["ora"]],
+      "answer_terms": [["project beta", "progetto beta"]],
+      "obsolete_terms": [["project alpha", "progetto alpha"]]
+    },
+    {
+      "id": "state_database",
+      "category": "past_vs_current",
+      "question": "Quale database usavamo prima?",
+      "expected_answer": "Prima usavamo SQLite; PostgreSQL è il database corrente.",
+      "evidence_terms": [["sqlite"], ["passato", "prima", "precedente"]],
+      "answer_terms": [["sqlite"]],
+      "obsolete_terms": []
+    }
+  ]
+}

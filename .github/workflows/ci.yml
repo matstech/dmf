@@ -7,13 +7,19 @@ on:
     paths:
       - "dmf/**"
       - "tests/**"
+      - "integrationtest/**"
+      - "compose.chroma.yml"
       - "pyproject.toml"
+      - "poetry.lock"
       - "Makefile"
   pull_request:
     paths:
       - "dmf/**"
       - "tests/**"
+      - "integrationtest/**"
+      - "compose.chroma.yml"
       - "pyproject.toml"
+      - "poetry.lock"
       - "Makefile"
   workflow_dispatch:
 

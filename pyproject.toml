@@ -55,7 +55,10 @@ dev = ["pytest>=9.0.2,<10.0.0", "pytest-asyncio>=1.3.0,<2.0.0"]
 docs = ["mkdocs-material>=9.5.0,<10.0.0", "mkdocstrings[python]>=0.28.0,<1.0.0"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-addopts = "-v --tb=short"
+testpaths = ["tests", "integrationtest"]
+addopts = "-v --tb=short -m 'not integration'"
 asyncio_mode = "auto"
 pythonpath = ["."]
+markers = [
+    "integration: tests that require explicitly managed external services",
+]

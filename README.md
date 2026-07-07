@@ -47,11 +47,22 @@ For a comprehensive guide on all configuration parameters, please check our [con
 The project provides a `Makefile` to simplify common development tasks:
 
 - `make install`: Install project dependencies using Poetry.
-- `make test`: Run the test suite.
+- `make test`: Run the unit suite without external services.
+- `make chroma-up`: Start the version-pinned local Chroma server and wait for readiness.
+- `make test-integration`: Run the opt-in Chroma server roundtrip test.
+- `make benchmark-ltm-local`: Run the separate 10-case DMF LTM benchmark against local Ollama.
+- `make chroma-down`: Stop the local Chroma server while preserving its data volume.
 - `make check`: Verify package metadata.
 - `make build`: Build the distributable wheel.
 - `make docs-serve`: Serve the documentation locally.
 - `make docs-build`: Build the static documentation site.
+
+The local server uses `chromadb/chroma:0.6.3`, matching the supported 0.6.x
+Python client. See the [configuration documentation](docs/configuration.md#local-chroma-integration-test)
+for server mode, authentication, port overrides, and the complete workflow.
+The benchmark defaults to the already-installed Ollama model `qwen2.5:0.5b`;
+override it with `OLLAMA_MODEL` and keep `OLLAMA_BASE_URL` on a loopback host.
+Reports are written under `integrationtest/results/` and are not part of pytest.
 
 ## Benchmarks
 
