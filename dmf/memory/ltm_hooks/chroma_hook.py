@@ -271,21 +271,40 @@ class ChromaLTMHook:
         distances: list[float] = results["distances"][0]
 
         hits: list[RawRecallHit] = []
+        valid_candidates: list[tuple[int, str, float]] = []
         for idx, (meta, dist) in enumerate(zip(metadatas, distances)):
             if dist > self._distance_threshold:
                 continue
             source_record_id = meta.get("source_record_id")
-            if not source_record_id:
-                continue
-            raw_results = self._collection.get(
-                ids=[str(source_record_id)],
-                include=["metadatas"],
-            )
-            raw_metas = raw_results.get("metadatas") or []
-            if not raw_metas:
+            if source_record_id:
+                valid_candidates.append((idx, str(source_record_id), dist))
+
+        if not valid_candidates:
+            return []
+
+        # Chroma rejects duplicate IDs. Multiple matching cards may still point
+        # to the same raw record, so deduplicate only the batch request while
+        # retaining every candidate below to preserve card ranking semantics.
+        source_ids = list(
+            dict.fromkeys(source_id for _, source_id, _ in valid_candidates)
+        )
+        raw_results = self._collection.get(
+            ids=source_ids,
+            include=["metadatas"],
+        )
+        raw_metas_list = raw_results.get("metadatas") or []
+        returned_ids = raw_results.get("ids") or []
+        raw_metas_map = {
+            r_id: r_meta
+            for r_id, r_meta in zip(returned_ids, raw_metas_list)
+        }
+
+        for idx, source_id, dist in valid_candidates:
+            meta_dict = raw_metas_map.get(source_id)
+            if not meta_dict:
                 continue
             try:
-                record = self._deserialize_raw_record(raw_metas[0])
+                record = self._deserialize_raw_record(meta_dict)
             except (KeyError, TypeError, ValueError, json.JSONDecodeError):
                 continue
             hits.append(
