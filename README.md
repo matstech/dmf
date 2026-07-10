@@ -2,7 +2,7 @@
   <img src="docs/assets/logo.svg" alt="DMF Logo" width="65"/>
 </p>
 
-**Paper**: [arXiv](https://arxiv.org/abs/2606.03463)
+[![arXiv](https://img.shields.io/badge/arXiv-2606.03463-b31b1b.svg)](https://arxiv.org/abs/2606.03463)
 
 # DMF
 
