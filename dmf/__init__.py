@@ -28,7 +28,7 @@ from dmf.models import AnalysisReport
 from dmf.runtime import InteractionPipeline
 
 # $versifyr:template={{ (printf "__version__ = \"%s\""  .version) }}$
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __author__ = "matstech"
 __email__ = "matteo.stabile2@gmail.com"
 
