@@ -43,6 +43,12 @@ from dmf.memory.ltm_hooks.chroma_client import (
     ChromaConnectionConfig,
     build_chroma_client,
 )
+from dmf.memory.ltm_hooks.codecs import (
+    build_card_payload,
+    build_raw_payload,
+    raw_record_from_payload,
+)
+from dmf.memory.ltm_hooks.vector_types import cosine_distance_to_similarity
 from dmf.models.memory import MemoryEntry
 from dmf.models.raw_ltm import RawLTMRecord, RawRecallHit
 from dmf.utils.config import VectorConfig
@@ -148,8 +154,9 @@ class ChromaLTMHook:
             TypeError: If raw-record or card metadata cannot be serialised.
         """
         raw_record = entry.to_raw_ltm_record()
+        raw_payload = build_raw_payload(raw_record)
         metadata = {
-            "raw_record": json.dumps(raw_record.to_dict(), ensure_ascii=False),
+            "raw_record": json.dumps(raw_payload["raw_record"], ensure_ascii=False),
             "record_id": raw_record.record_id,
             "raw_interaction_id": raw_record.interaction_id,
             "raw_role": raw_record.role,
@@ -171,8 +178,9 @@ class ChromaLTMHook:
                         piece for piece in [card.kind, card.subject, card.predicate, card.object]
                         if piece
                     )
+                    card_payload = build_card_payload(card)
                     card_metadata = {
-                        "card": json.dumps(card.to_dict(), ensure_ascii=False),
+                        "card": json.dumps(card_payload["card"], ensure_ascii=False),
                         "card_id": card.card_id,
                         "source_record_id": card.provenance.source_record_id,
                         "kind": card.kind,
@@ -228,7 +236,7 @@ class ChromaLTMHook:
                 RawRecallHit(
                     record=record,
                     distance=float(dist),
-                    similarity_score=1.0 - float(dist),
+                    similarity_score=cosine_distance_to_similarity(float(dist)),
                     rank_hint=idx,
                 )
             )
@@ -311,7 +319,7 @@ class ChromaLTMHook:
                 RawRecallHit(
                     record=record,
                     distance=float(dist),
-                    similarity_score=1.0 - float(dist),
+                    similarity_score=cosine_distance_to_similarity(float(dist)),
                     rank_hint=idx,
                 )
             )
@@ -397,10 +405,7 @@ class ChromaLTMHook:
 
     def _deserialize_raw_record(self, meta: dict[str, object]) -> RawLTMRecord:
         """Hydrate a raw-LTM record from Chroma metadata."""
-        raw_payload = meta["raw_record"]
-        if not isinstance(raw_payload, str) or not raw_payload:
-            raise ValueError("Missing raw_record metadata")
-        return RawLTMRecord.from_dict(json.loads(raw_payload))
+        return raw_record_from_payload(meta)
 
     def _embed_text_payload(self, text: str) -> list[float]:
         """Return the vector used to index one raw record."""

@@ -93,7 +93,6 @@ All per-entry decay calculations are sub-microsecond (one ``math.exp``).
 
 from __future__ import annotations
 
-import os
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -112,13 +111,14 @@ from dmf.memory.constants import (
     UNIX_TIMESTAMP_MIN,
     UTC_RENDER_FORMAT,
 )
+from dmf.memory.ltm_hooks import factory as _ltm_hook_factory
+from dmf.memory.ltm_hooks.factory import build_ltm_hook
 from dmf.models.analysis import AnalysisReport, MemoryLineage
 from dmf.models.ltm_hook import LTMHook, NullLTMHook
 from dmf.models.memory import MemoryEntry
 from dmf.models.raw_ltm import ContextualizedRecallCandidate, RawLTMRecord, RawRecallHit
 from dmf.models.status import classify_survival_status
 from dmf.utils.config import DecayConfig, PruningPriorityConfig, VectorConfig
-from dmf.utils.constants import LTM_BACKEND_CHROMA, LTM_BACKEND_FILE, LTM_BACKEND_NULL
 
 if TYPE_CHECKING:
     # DMFConfig is only needed for the from_dmf_config factory; importing it
@@ -133,6 +133,10 @@ if TYPE_CHECKING:
 # Instantiated once at import time — tiktoken BPE vocabulary is loaded once
 # and reused across all TemporalMemory instances.  Thread-safe for reads.
 _TOKENIZER: tiktoken.Encoding = tiktoken.get_encoding("cl100k_base")
+
+# Backward-compatible patch point for existing tests. LTM environment
+# resolution lives in the factory.
+os = _ltm_hook_factory.os
 
 
 # Context section headers (UI strings — not business logic, not configurable)
@@ -367,10 +371,7 @@ class TemporalMemory:
                 pruning_priority.rho_*             pruning_priority.*         PruningPriorityConfig
                 nlp.vector_dim                     nlp.vector_dim             VectorConfig.vector_dim
                 capacity.window_size               capacity.window_size       VectorConfig.window_size
-                ltm.enabled + storage_type="file"    ltm.*                    → FileLTMHook(storage_path)
-                ltm.enabled + storage_type="chroma"  ltm.*                    → ChromaLTMHook(...)
-                ltm.enabled + storage_type="null"    ltm.*                    → NullLTMHook
-                ltm.enabled=false                     ltm.*                    → NullLTMHook
+                ltm.*                                ltm.*                    → configured LTMHook
                 ====================== ======================== =====================
         
                 Parameters
@@ -420,73 +421,11 @@ class TemporalMemory:
             window_size=config.capacity.window_size,
         )
 
-        # Resolve LTM hook:
-        #   1. Explicit injection always wins (testing / custom backends).
-        #   2. ltm.enabled=false                    → NullLTMHook.
-        #   3. ltm.enabled + storage_type="file"   → FileLTMHook.
-        #   4. ltm.enabled + storage_type="chroma" → ChromaLTMHook.
-        #   5. ltm.enabled + storage_type="null"   → NullLTMHook.
-        # The import is deferred to this call site to avoid any future
-        # circular-import risk if config_loader grows additional imports.
         resolved_hook: LTMHook
         if ltm_hook is not None:
             resolved_hook = ltm_hook
-        elif not config.ltm.enabled:
-            resolved_hook = NullLTMHook()
-        elif config.ltm.storage_type == LTM_BACKEND_FILE:
-            from dmf.memory.ltm_hooks import FileLTMHook  # deferred import
-            resolved_hook = FileLTMHook(
-                config.ltm.storage_path,
-                cards_enabled=config.ltm.cards_enabled,
-                cards_path=config.ltm.cards_path,
-            )
-        elif config.ltm.storage_type == LTM_BACKEND_CHROMA:
-            from dmf.memory.ltm_hooks import ChromaLTMHook  # deferred import
-            from dmf.memory.ltm_hooks.chroma_client import (
-                ChromaConnectionConfig,
-                ChromaConnectionMode,
-            )
-
-            mode = ChromaConnectionMode(config.ltm.chroma_mode)
-            auth_token = None
-            if (
-                mode is ChromaConnectionMode.SERVER
-                and config.ltm.chroma_auth_token_env
-            ):
-                env_name = config.ltm.chroma_auth_token_env.strip()
-                auth_token = os.getenv(env_name)
-                if auth_token is None or not auth_token.strip():
-                    raise ValueError(
-                        f"Chroma auth token environment variable {env_name!r} "
-                        "is missing or empty"
-                    )
-
-            connection = ChromaConnectionConfig(
-                mode=mode,
-                persist_directory=config.ltm.chroma_path,
-                host=config.ltm.chroma_host,
-                port=config.ltm.chroma_port,
-                ssl=config.ltm.chroma_ssl,
-                tenant=config.ltm.chroma_tenant,
-                database=config.ltm.chroma_database,
-                auth_token=auth_token,
-            )
-            resolved_hook = ChromaLTMHook(
-                collection_name=config.ltm.collection_name,
-                persist_directory=config.ltm.chroma_path,
-                distance_threshold=config.ltm.distance_threshold,
-                cards_enabled=config.ltm.cards_enabled,
-                cards_path=config.ltm.cards_path,
-                cards_collection_name=config.ltm.cards_collection_name,
-                connection=connection,
-            )
-        elif config.ltm.storage_type == LTM_BACKEND_NULL:
-            resolved_hook = NullLTMHook()
         else:
-            raise ValueError(
-                "Unsupported ltm.storage_type at runtime: "
-                f"{config.ltm.storage_type!r}"
-            )
+            resolved_hook = build_ltm_hook(config.ltm, vector_cfg)
 
         return cls(
             decay_config=decay_cfg,

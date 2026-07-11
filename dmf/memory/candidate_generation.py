@@ -53,7 +53,7 @@ from dmf.models.constants import (
     QUERY_CURRENTNESS_HISTORICAL,
     QUERY_CURRENTNESS_MIXED,
 )
-from dmf.models.ltm_hook import LTMHook
+from dmf.models.ltm_hook import CardSearchLTMHook, LTMHook
 from dmf.models.memory import MemoryCard, QueryFrame, RetrievedEvidence
 from dmf.models.raw_ltm import RawLTMRecord, RawRecallHit
 
@@ -215,7 +215,7 @@ class CardSemanticRetriever:
         """
         if (
             self._ltm_hook is not None
-            and hasattr(self._ltm_hook, "search_cards")
+            and isinstance(self._ltm_hook, CardSearchLTMHook)
             and query.query_embedding is not None
         ):
             hits = self._ltm_hook.search_cards(query.query_embedding, k=k)

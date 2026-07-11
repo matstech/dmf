@@ -20,40 +20,37 @@
 #
 # SPDX-License-Identifier: MIT
 
-"""Canonical data contracts for analysis, memory, and recall."""
+"""Vector score and shape helpers shared by LTM backends."""
 
-from dmf.models.analysis import AnalysisReport, InteractionProvenance, InteractionSignals, MemoryLineage
-from dmf.models.ltm_hook import CardSearchLTMHook, LTMHook, NullLTMHook
-from dmf.models.memory import (
-    MemoryEntry,
-    MemoryCard,
-    MemoryCardProvenance,
-    MemoryCardTimeAnchor,
-    MemoryCardValidity,
-    QueryFrame,
-    RetrievedEvidence,
-)
-from dmf.models.raw_ltm import ContextualizedRecallCandidate, RawLTMRecord, RawRecallHit
-from dmf.models.status import SurvivalStatus, classify_survival_status
+from __future__ import annotations
 
-__all__ = [
-    "AnalysisReport",
-    "InteractionProvenance",
-    "InteractionSignals",
-    "MemoryLineage",
-    "CardSearchLTMHook",
-    "LTMHook",
-    "NullLTMHook",
-    "MemoryEntry",
-    "MemoryCard",
-    "MemoryCardProvenance",
-    "MemoryCardTimeAnchor",
-    "MemoryCardValidity",
-    "QueryFrame",
-    "RetrievedEvidence",
-    "ContextualizedRecallCandidate",
-    "RawLTMRecord",
-    "RawRecallHit",
-    "SurvivalStatus",
-    "classify_survival_status",
-]
+from collections.abc import Sequence
+
+
+def cosine_distance_to_similarity(distance: float) -> float:
+    """Convert cosine distance to similarity without clamping."""
+    return 1.0 - distance
+
+
+def cosine_similarity_to_distance(score: float) -> float:
+    """Convert cosine similarity to distance without clamping."""
+    return 1.0 - score
+
+
+def distance_threshold_to_min_similarity(threshold: float) -> float:
+    """Convert a maximum distance threshold into a minimum similarity."""
+    return 1.0 - threshold
+
+
+def validate_vector_dimension(
+    vector: Sequence[float],
+    expected: int,
+    *,
+    field: str,
+) -> None:
+    """Raise when a vector does not match the configured dimensionality."""
+    observed = len(vector)
+    if observed != expected:
+        raise ValueError(
+            f"{field} vector dimension mismatch: expected {expected}, observed {observed}"
+        )
