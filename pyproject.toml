@@ -39,6 +39,9 @@ dependencies = [
     "pydantic>=2.12.0,<3.0.0",
 ]
 
+[project.optional-dependencies]
+qdrant = ["qdrant-client>=1.17.0,<2.0.0"]
+
 [project.urls]
 Homepage = "https://github.com/tuouser/dmf"
 Repository = "https://github.com/tuouser/dmf"

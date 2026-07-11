@@ -41,6 +41,7 @@ from dmf.memory.candidate_generation import (
 from dmf.memory.query_understanding import parse_query_frame
 from dmf.memory.temporal_memory import TemporalMemory
 from dmf.models.analysis import AnalysisReport, InteractionProvenance, InteractionSignals
+from dmf.models import CardSearchLTMHook
 from dmf.models.ltm_hook import LTMHook
 from dmf.models.memory import (
     MemoryCard,
@@ -400,6 +401,20 @@ def test_card_semantic_retriever_falls_back_to_lexical_when_no_hook() -> None:
     assert results[0].source == "card_semantic"
 
 
+def test_card_semantic_retriever_falls_back_when_hook_has_no_card_search() -> None:
+    hook = _FakeHook([])
+    retriever = CardSemanticRetriever(ltm_hook=hook)
+    query = parse_query_frame("What does Alice prefer?", query_embedding=[0.1, 0.2])
+    cards = [_card()]
+
+    results = retriever.retrieve(query, cards=cards, k=5)
+
+    assert not isinstance(hook, CardSearchLTMHook)
+    assert len(results) == 1
+    assert results[0].evidence_id == "card:record:1:0"
+    assert results[0].source == "card_semantic"
+
+
 def test_card_semantic_retriever_falls_back_to_lexical_when_no_embedding() -> None:
     hook = _HookWithSearchCards([])
     retriever = CardSemanticRetriever(ltm_hook=hook)
@@ -412,6 +427,12 @@ def test_card_semantic_retriever_falls_back_to_lexical_when_no_embedding() -> No
     assert hook.search_cards_called is False
     assert len(results) == 1
     assert results[0].evidence_id == "card:record:1:0"
+
+
+def test_card_search_ltm_hook_recognizes_structural_implementation() -> None:
+    hook = _HookWithSearchCards([])
+
+    assert isinstance(hook, CardSearchLTMHook)
 
 
 def test_deterministic_card_semantic_retriever_alias_is_card_semantic_retriever() -> None:

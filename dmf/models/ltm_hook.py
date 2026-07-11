@@ -36,6 +36,7 @@ from typing import Protocol, runtime_checkable
 from dmf.models.memory import MemoryEntry
 from dmf.models.raw_ltm import RawLTMRecord, RawRecallHit
 
+
 @runtime_checkable
 class LTMHook(Protocol):
     """Interface for sending evicted interactions to Long-Term Memory.
@@ -94,6 +95,31 @@ class LTMHook(Protocol):
             Backend-specific exceptions may be raised by concrete stores.
         """
         ...
+
+
+@runtime_checkable
+class CardSearchLTMHook(Protocol):
+    """Optional LTM surface for semantic search over projected cards."""
+
+    def search_cards(
+        self,
+        query_vector: list[float],
+        k: int = 5,
+    ) -> list[RawRecallHit]:
+        """Retrieve source raw records for the top-k matching cards.
+
+        Args:
+            query_vector: Dense embedding used by the backend for card search.
+            k: Maximum number of card hits requested.
+
+        Returns:
+            Raw recall hits pointing to source records for matching cards.
+
+        Raises:
+            Backend-specific exceptions may be raised by concrete stores.
+        """
+        ...
+
 
 class NullLTMHook:
     """No-op LTM hook for environments without a real storage backend.

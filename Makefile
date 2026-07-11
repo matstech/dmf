@@ -6,7 +6,7 @@ lock:
 
 # Install dependencies (including dev) and download the spaCy model
 install:
-	poetry install --with dev --no-interaction
+	poetry install --with dev --extras qdrant --no-interaction
 	poetry run python -m spacy download en_core_web_sm
 
 # Verify package metadata
