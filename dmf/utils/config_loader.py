@@ -97,6 +97,7 @@ from dmf.utils.constants import (
     DEFAULT_LTM_CHROMA_TENANT,
     DEFAULT_LTM_COLLECTION_NAME,
     DEFAULT_LTM_DISTANCE_THRESHOLD,
+    DEFAULT_LTM_QDRANT_MODE,
     DEFAULT_LTM_RECALL_LIMIT,
     DEFAULT_LTM_STORAGE_PATH,
     DEFAULT_PRUNING_FREQUENCY,
@@ -140,9 +141,11 @@ from dmf.utils.constants import (
     DEFAULT_WINDOW_SIZE,
     LTM_BACKEND_CHROMA,
     LTM_BACKEND_FILE,
+    LTM_BACKEND_QDRANT,
     LTM_CHROMA_MODE_SERVER,
     SUPPORTED_LTM_BACKENDS,
     SUPPORTED_LTM_CHROMA_MODES,
+    SUPPORTED_LTM_QDRANT_MODES,
 )
 
 # Default path: project root / dmf_settings.toml
@@ -191,7 +194,7 @@ def _validate_memory_tiers(tiers: MemoryTiersSettings) -> None:
 
 
 def _validate_ltm_settings(ltm: LTMSettings) -> None:
-    """Validate the configured LTM backend and Chroma connection settings."""
+    """Validate common LTM settings and the active backend-specific options."""
     supported = SUPPORTED_LTM_BACKENDS
     if ltm.storage_type not in supported:
         joined = ", ".join(sorted(supported))
@@ -200,9 +203,29 @@ def _validate_ltm_settings(ltm: LTMSettings) -> None:
             f"got {ltm.storage_type!r}"
         )
 
-    supported_modes = SUPPORTED_LTM_CHROMA_MODES
-    if ltm.chroma_mode not in supported_modes:
-        joined = ", ".join(sorted(supported_modes))
+    if ltm.recall_limit < 0:
+        raise ValueError("ltm.recall_limit must be non-negative")
+    if not 0.0 <= ltm.distance_threshold <= 2.0:
+        raise ValueError("ltm.distance_threshold must be within [0.0, 2.0]")
+
+    chroma_is_active = ltm.enabled and ltm.storage_type == LTM_BACKEND_CHROMA
+    qdrant_is_active = ltm.enabled and ltm.storage_type == LTM_BACKEND_QDRANT
+
+    if qdrant_is_active:
+        supported_qdrant_modes = SUPPORTED_LTM_QDRANT_MODES
+        if ltm.qdrant_mode not in supported_qdrant_modes:
+            joined = ", ".join(sorted(supported_qdrant_modes))
+            raise ValueError(
+                f"ltm.qdrant_mode must be one of {{{joined}}}; "
+                f"got {ltm.qdrant_mode!r}"
+            )
+
+    if not chroma_is_active:
+        return
+
+    supported_chroma_modes = SUPPORTED_LTM_CHROMA_MODES
+    if ltm.chroma_mode not in supported_chroma_modes:
+        joined = ", ".join(sorted(supported_chroma_modes))
         raise ValueError(
             f"ltm.chroma_mode must be one of {{{joined}}}; "
             f"got {ltm.chroma_mode!r}"
@@ -213,12 +236,7 @@ def _validate_ltm_settings(ltm: LTMSettings) -> None:
             "ltm.chroma_auth_token_env must not contain only whitespace"
         )
 
-    server_is_active = (
-        ltm.enabled
-        and ltm.storage_type == LTM_BACKEND_CHROMA
-        and ltm.chroma_mode == LTM_CHROMA_MODE_SERVER
-    )
-    if not server_is_active:
+    if ltm.chroma_mode != LTM_CHROMA_MODE_SERVER:
         return
 
     if not ltm.chroma_host.strip():
@@ -548,6 +566,7 @@ class LTMSettings:
             Backend identifier.
             ``"file"``   → ``FileLTMHook``  (JSONL audit trail, write-only).
             ``"chroma"`` → ``ChromaLTMHook`` (vector store with active recall).
+            ``"qdrant"`` → Qdrant vector store (local in-memory mode).
             ``"null"``   → ``NullLTMHook`` (silent discard, for tests).
             Default: ``"file"``.
         storage_path : str
@@ -560,6 +579,9 @@ class LTMSettings:
             Default: ``"data/ltm_chroma"``.
         chroma_mode : str
             Chroma connection mode: ``"embedded"`` or ``"server"``.
+        qdrant_mode : str
+            Qdrant connection mode. Only volatile ``"memory"`` is currently
+            supported.
         chroma_host : str
             Chroma server hostname.
         chroma_port : int
@@ -573,8 +595,8 @@ class LTMSettings:
         chroma_auth_token_env : str
             Optional environment-variable name containing a server Bearer token.
         collection_name : str
-            ChromaDB collection name.  Changing this creates an independent
-            namespace — useful for separating sessions or benchmark runs.
+            Raw-record vector collection name. Changing this creates an
+            independent namespace for vector-backed LTM sessions or benchmarks.
             Default: ``"dmf_memory"``.
         recall_limit : int
             Maximum number of raw records to retrieve per ``search_raw()`` call
@@ -592,12 +614,16 @@ class LTMSettings:
         cards_path : str
             Path to the auxiliary memory-card JSONL archive.
             Default: ``"data/ltm_cards.jsonl"``.
+        cards_collection_name : str
+            Structured memory-card vector collection name for vector-backed LTM.
+            Default: ``"dmf_cards"``.
     
     Args:
         storage_type: See the function signature and surrounding type hints.
         storage_path: See the function signature and surrounding type hints.
         chroma_path: See the function signature and surrounding type hints.
         chroma_mode: See the function signature and surrounding type hints.
+        qdrant_mode: See the function signature and surrounding type hints.
         chroma_host: See the function signature and surrounding type hints.
         chroma_port: See the function signature and surrounding type hints.
         chroma_ssl: See the function signature and surrounding type hints.
@@ -629,6 +655,7 @@ class LTMSettings:
     cards_enabled: bool = False
     cards_path: str = DEFAULT_LTM_CARDS_PATH
     cards_collection_name: str = DEFAULT_LTM_CARDS_COLLECTION_NAME
+    qdrant_mode: str = DEFAULT_LTM_QDRANT_MODE
     chroma_mode: str = DEFAULT_LTM_CHROMA_MODE
     chroma_host: str = DEFAULT_LTM_CHROMA_HOST
     chroma_port: int = DEFAULT_LTM_CHROMA_PORT
@@ -799,6 +826,7 @@ class _LTMSettingsModel(_ConfigSectionModel):
     storage_type: str = LTMSettings.storage_type
     storage_path: str = LTMSettings.storage_path
     chroma_path: str = LTMSettings.chroma_path
+    qdrant_mode: str = LTMSettings.qdrant_mode
     chroma_mode: str = LTMSettings.chroma_mode
     chroma_host: str = LTMSettings.chroma_host
     chroma_port: int = LTMSettings.chroma_port

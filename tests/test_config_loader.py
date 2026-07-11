@@ -32,6 +32,7 @@ from pathlib import Path
 
 import pytest
 
+from dmf.utils.constants import LTM_BACKEND_QDRANT, SUPPORTED_LTM_BACKENDS
 from dmf.utils.config_loader import load_dmf_config
 
 
@@ -149,6 +150,7 @@ def test_ltm_chroma_connection_defaults_preserve_embedded_mode(
 ) -> None:
     cfg = load_dmf_config(_write_toml(tmp_path, "[ltm]"))
 
+    assert cfg.ltm.qdrant_mode == "memory"
     assert cfg.ltm.chroma_mode == "embedded"
     assert cfg.ltm.chroma_host == "localhost"
     assert cfg.ltm.chroma_port == 8000
@@ -186,20 +188,137 @@ chroma_auth_token_env = "DMF_CHROMA_TOKEN"
     assert cfg.ltm.chroma_auth_token_env == "DMF_CHROMA_TOKEN"
 
 
-def test_load_dmf_config_rejects_unknown_chroma_mode_for_any_backend(
+def test_supported_ltm_backends_include_qdrant() -> None:
+    assert LTM_BACKEND_QDRANT in SUPPORTED_LTM_BACKENDS
+
+
+def test_load_dmf_config_parses_explicit_qdrant_storage_type(
     tmp_path: Path,
 ) -> None:
     path = _write_toml(
         tmp_path,
         """
 [ltm]
-storage_type = "file"
+storage_type = "qdrant"
+qdrant_mode = "memory"
+""".strip(),
+    )
+
+    cfg = load_dmf_config(path)
+
+    assert cfg.ltm.storage_type == "qdrant"
+    assert cfg.ltm.qdrant_mode == "memory"
+
+
+def test_load_dmf_config_rejects_unknown_chroma_mode_when_chroma_active(
+    tmp_path: Path,
+) -> None:
+    path = _write_toml(
+        tmp_path,
+        """
+[ltm]
+storage_type = "chroma"
+enabled = true
 chroma_mode = "cluster"
 """.strip(),
     )
 
     with pytest.raises(ValueError, match=r"ltm.chroma_mode must be one of"):
         load_dmf_config(path)
+
+
+@pytest.mark.parametrize(
+    ("storage_type", "enabled"),
+    [("file", True), ("null", True), ("qdrant", True), ("chroma", False)],
+)
+def test_load_dmf_config_ignores_unknown_chroma_mode_when_chroma_inactive(
+    tmp_path: Path,
+    storage_type: str,
+    enabled: bool,
+) -> None:
+    path = _write_toml(
+        tmp_path,
+        "\n".join(
+            [
+                "[ltm]",
+                f'storage_type = "{storage_type}"',
+                f"enabled = {str(enabled).lower()}",
+                'chroma_mode = "cluster"',
+            ]
+        ),
+    )
+
+    cfg = load_dmf_config(path)
+
+    assert cfg.ltm.chroma_mode == "cluster"
+
+
+def test_load_dmf_config_rejects_unknown_qdrant_mode_when_qdrant_active(
+    tmp_path: Path,
+) -> None:
+    path = _write_toml(
+        tmp_path,
+        """
+[ltm]
+storage_type = "qdrant"
+enabled = true
+qdrant_mode = "disk"
+""".strip(),
+    )
+
+    with pytest.raises(ValueError, match=r"ltm.qdrant_mode must be one of"):
+        load_dmf_config(path)
+
+
+@pytest.mark.parametrize(
+    ("storage_type", "enabled"),
+    [("file", True), ("null", True), ("chroma", True), ("qdrant", False)],
+)
+def test_load_dmf_config_ignores_unknown_qdrant_mode_when_qdrant_inactive(
+    tmp_path: Path,
+    storage_type: str,
+    enabled: bool,
+) -> None:
+    path = _write_toml(
+        tmp_path,
+        "\n".join(
+            [
+                "[ltm]",
+                f'storage_type = "{storage_type}"',
+                f"enabled = {str(enabled).lower()}",
+                'qdrant_mode = "disk"',
+            ]
+        ),
+    )
+
+    cfg = load_dmf_config(path)
+
+    assert cfg.ltm.qdrant_mode == "disk"
+
+
+def test_load_dmf_config_ignores_invalid_chroma_fields_when_qdrant_active(
+    tmp_path: Path,
+) -> None:
+    path = _write_toml(
+        tmp_path,
+        """
+[ltm]
+storage_type = "qdrant"
+enabled = true
+qdrant_mode = "memory"
+chroma_mode = "cluster"
+chroma_host = ""
+chroma_port = 0
+chroma_tenant = ""
+chroma_database = ""
+chroma_auth_token_env = "   "
+""".strip(),
+    )
+
+    cfg = load_dmf_config(path)
+
+    assert cfg.ltm.storage_type == "qdrant"
+    assert cfg.ltm.qdrant_mode == "memory"
 
 
 @pytest.mark.parametrize(
@@ -288,12 +407,61 @@ def test_load_dmf_config_rejects_whitespace_auth_env_name(tmp_path: Path) -> Non
         tmp_path,
         """
 [ltm]
+storage_type = "chroma"
 chroma_auth_token_env = "   "
 """.strip(),
     )
 
     with pytest.raises(ValueError, match="ltm.chroma_auth_token_env"):
         load_dmf_config(path)
+
+
+def test_load_dmf_config_rejects_negative_ltm_recall_limit(tmp_path: Path) -> None:
+    path = _write_toml(
+        tmp_path,
+        """
+[ltm]
+recall_limit = -1
+""".strip(),
+    )
+
+    with pytest.raises(ValueError, match="ltm.recall_limit"):
+        load_dmf_config(path)
+
+
+@pytest.mark.parametrize("threshold", [-0.1, 2.1])
+def test_load_dmf_config_rejects_ltm_distance_threshold_out_of_range(
+    tmp_path: Path,
+    threshold: float,
+) -> None:
+    path = _write_toml(
+        tmp_path,
+        f"""
+[ltm]
+distance_threshold = {threshold}
+""".strip(),
+    )
+
+    with pytest.raises(ValueError, match=r"ltm.distance_threshold"):
+        load_dmf_config(path)
+
+
+@pytest.mark.parametrize("threshold", [0.0, 2.0])
+def test_load_dmf_config_accepts_ltm_distance_threshold_boundaries(
+    tmp_path: Path,
+    threshold: float,
+) -> None:
+    path = _write_toml(
+        tmp_path,
+        f"""
+[ltm]
+distance_threshold = {threshold}
+""".strip(),
+    )
+
+    cfg = load_dmf_config(path)
+
+    assert cfg.ltm.distance_threshold == threshold
 
 
 def test_load_dmf_config_parses_pruning_priority_section(tmp_path: Path) -> None:

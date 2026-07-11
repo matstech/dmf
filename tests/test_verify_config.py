@@ -55,6 +55,8 @@ class TestConfigParsing:
         assert cfg.nlp.vector_dim > 0
 
     def test_ltm_chroma_connection_section(self, cfg: DMFConfig) -> None:
+        assert cfg.ltm.storage_type == "chroma"
+        assert cfg.ltm.qdrant_mode == "memory"
         assert cfg.ltm.chroma_mode == "embedded"
         assert cfg.ltm.chroma_host == "localhost"
         assert cfg.ltm.chroma_port == 8000
