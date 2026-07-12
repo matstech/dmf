@@ -32,18 +32,22 @@ import dmf
 import dmf.memory
 import pytest
 
-from dmf.memory.ltm_hooks import ChromaLTMHook, FileLTMHook
+from dmf.memory.ltm_hooks import ChromaLTMHook, FileLTMHook, QdrantLTMHook
 from dmf.memory.ltm_hooks.chroma_hook import ChromaLTMHook as CanonicalChromaLTMHook
 from dmf.memory.ltm_hooks.file_hook import FileLTMHook as CanonicalFileLTMHook
+from dmf.memory.ltm_hooks.qdrant_hook import QdrantLTMHook as CanonicalQdrantLTMHook
 
 
 def test_canonical_reexports_preserve_class_identity() -> None:
     assert ChromaLTMHook is CanonicalChromaLTMHook
     assert FileLTMHook is CanonicalFileLTMHook
+    assert QdrantLTMHook is CanonicalQdrantLTMHook
     assert dmf.memory.ChromaLTMHook is CanonicalChromaLTMHook
     assert dmf.memory.FileLTMHook is CanonicalFileLTMHook
+    assert dmf.memory.QdrantLTMHook is CanonicalQdrantLTMHook
     assert dmf.ChromaLTMHook is CanonicalChromaLTMHook
     assert dmf.FileLTMHook is CanonicalFileLTMHook
+    assert dmf.QdrantLTMHook is CanonicalQdrantLTMHook
 
 
 @pytest.mark.parametrize(

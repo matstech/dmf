@@ -28,8 +28,10 @@ from typing import Any
 import pytest
 
 from dmf.memory import temporal_memory
+import dmf.memory.ltm_hooks as ltm_hooks
 from dmf.memory.ltm_hooks import ChromaLTMHook, FileLTMHook
 from dmf.memory.ltm_hooks.chroma_client import ChromaConnectionMode
+from dmf.memory.ltm_hooks.qdrant_client import QdrantConnectionMode
 from dmf.memory.ltm_hooks.factory import build_ltm_hook
 from dmf.models.ltm_hook import NullLTMHook
 from dmf.utils.config import VectorConfig
@@ -168,6 +170,39 @@ def test_chroma_server_missing_auth_token_raises_without_secret_text(
         build_ltm_hook(settings, VectorConfig())
 
     assert "Authorization" not in str(exc_info.value)
+
+
+def test_qdrant_ltm_builds_hook_with_connection_and_vector_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeQdrantLTMHook:
+        def __init__(self, **kwargs: Any) -> None:
+            captured.update(kwargs)
+
+    monkeypatch.setattr(ltm_hooks, "QdrantLTMHook", FakeQdrantLTMHook)
+    vector_config = VectorConfig(model_name="local-test-model", vector_dim=13)
+    settings = LTMSettings(
+        storage_type="qdrant",
+        qdrant_mode="memory",
+        collection_name="qdrant_raw",
+        distance_threshold=0.27,
+        cards_enabled=True,
+        cards_path="cards.jsonl",
+        cards_collection_name="qdrant_cards",
+    )
+
+    hook = build_ltm_hook(settings, vector_config)
+
+    assert isinstance(hook, FakeQdrantLTMHook)
+    assert captured["collection_name"] == "qdrant_raw"
+    assert captured["distance_threshold"] == 0.27
+    assert captured["vector_config"] is vector_config
+    assert "cards_enabled" not in captured
+    assert "cards_path" not in captured
+    assert "cards_collection_name" not in captured
+    assert captured["connection"].mode is QdrantConnectionMode.MEMORY
 
 
 @pytest.mark.parametrize(

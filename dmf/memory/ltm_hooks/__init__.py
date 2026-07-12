@@ -24,5 +24,6 @@
 
 from dmf.memory.ltm_hooks.chroma_hook import ChromaLTMHook
 from dmf.memory.ltm_hooks.file_hook import FileLTMHook
+from dmf.memory.ltm_hooks.qdrant_hook import QdrantLTMHook
 
-__all__ = ["ChromaLTMHook", "FileLTMHook"]
+__all__ = ["ChromaLTMHook", "FileLTMHook", "QdrantLTMHook"]

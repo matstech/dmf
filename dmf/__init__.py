@@ -23,7 +23,7 @@
 """Deterministic Memory Framework package."""
 
 from dmf.analysis import EmbeddingEngine, InteractionMatrix, NLPEngine, ScoringEngine
-from dmf.memory import ChromaLTMHook, FileLTMHook, Memory, TemporalMemory
+from dmf.memory import ChromaLTMHook, FileLTMHook, Memory, QdrantLTMHook, TemporalMemory
 from dmf.models import AnalysisReport
 from dmf.runtime import InteractionPipeline
 
@@ -41,6 +41,7 @@ __all__ = [
     "InteractionPipeline",
     "Memory",
     "NLPEngine",
+    "QdrantLTMHook",
     "ScoringEngine",
     "TemporalMemory",
 ]
