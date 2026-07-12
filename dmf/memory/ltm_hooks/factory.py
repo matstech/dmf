@@ -29,7 +29,12 @@ import os
 from dmf.models.ltm_hook import LTMHook, NullLTMHook
 from dmf.utils.config import VectorConfig
 from dmf.utils.config_loader import LTMSettings
-from dmf.utils.constants import LTM_BACKEND_CHROMA, LTM_BACKEND_FILE, LTM_BACKEND_NULL
+from dmf.utils.constants import (
+    LTM_BACKEND_CHROMA,
+    LTM_BACKEND_FILE,
+    LTM_BACKEND_NULL,
+    LTM_BACKEND_QDRANT,
+)
 
 
 def build_ltm_hook(settings: LTMSettings, vector_config: VectorConfig) -> LTMHook:
@@ -84,6 +89,22 @@ def build_ltm_hook(settings: LTMSettings, vector_config: VectorConfig) -> LTMHoo
             cards_enabled=settings.cards_enabled,
             cards_path=settings.cards_path,
             cards_collection_name=settings.cards_collection_name,
+            connection=connection,
+        )
+
+    if settings.storage_type == LTM_BACKEND_QDRANT:
+        from dmf.memory.ltm_hooks import QdrantLTMHook
+        from dmf.memory.ltm_hooks.qdrant_client import (
+            QdrantConnectionConfig,
+            QdrantConnectionMode,
+        )
+
+        mode = QdrantConnectionMode(settings.qdrant_mode)
+        connection = QdrantConnectionConfig(mode=mode)
+        return QdrantLTMHook(
+            collection_name=settings.collection_name,
+            distance_threshold=settings.distance_threshold,
+            vector_config=vector_config,
             connection=connection,
         )
 

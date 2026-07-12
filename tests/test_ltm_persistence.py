@@ -98,6 +98,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import dmf.memory.ltm_hooks as ltm_hooks
 from dmf.memory.ltm_hooks import FileLTMHook
 from dmf.models.analysis import (
     AnalysisReport,
@@ -603,6 +604,43 @@ class TestFromDMFConfigLTMResolution:
         cfg = self._dmf_cfg(tmp_path, enabled=True, storage_type="null")
         tm = TemporalMemory.from_dmf_config(cfg)
         assert isinstance(tm._ltm_hook, NullLTMHook)
+
+    def test_qdrant_hook_created_when_storage_type_is_qdrant(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        captured: dict[str, object] = {}
+
+        class FakeQdrantLTMHook:
+            def __init__(self, **kwargs: object) -> None:
+                captured.update(kwargs)
+
+        monkeypatch.setattr(ltm_hooks, "QdrantLTMHook", FakeQdrantLTMHook)
+        cfg = self._dmf_cfg(tmp_path, enabled=True, storage_type="qdrant")
+
+        tm = TemporalMemory.from_dmf_config(cfg)
+
+        assert isinstance(tm._ltm_hook, FakeQdrantLTMHook)
+        assert captured["collection_name"] == cfg.ltm.collection_name
+        assert captured["distance_threshold"] == cfg.ltm.distance_threshold
+
+    def test_explicit_hook_overrides_qdrant_config(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        monkeypatch.setattr(
+            ltm_hooks,
+            "QdrantLTMHook",
+            lambda **kwargs: pytest.fail("unexpected Qdrant construction"),
+        )
+        cfg = self._dmf_cfg(tmp_path, enabled=True, storage_type="qdrant")
+        explicit = NullLTMHook()
+
+        tm = TemporalMemory.from_dmf_config(cfg, ltm_hook=explicit)
+
+        assert tm._ltm_hook is explicit
 
 
 # ===========================================================================

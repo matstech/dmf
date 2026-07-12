@@ -50,7 +50,7 @@ from dmf.memory.evidence_assembly import (
     expand_card_evidence,
     render_evidence_context,
 )
-from dmf.memory.ltm_hooks import ChromaLTMHook, FileLTMHook
+from dmf.memory.ltm_hooks import ChromaLTMHook, FileLTMHook, QdrantLTMHook
 from dmf.memory.query_understanding import QueryUnderstandingParser, parse_query_frame
 from dmf.memory.temporal_memory import TemporalMemory
 
@@ -79,6 +79,7 @@ __all__ = [
     "expand_card_evidence",
     "render_evidence_context",
     "FileLTMHook",
+    "QdrantLTMHook",
     "QueryUnderstandingParser",
     "TemporalMemory",
     "parse_query_frame",
