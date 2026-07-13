@@ -8,10 +8,15 @@ from pathlib import Path
 import pytest
 
 from integrationtest.run_ltm_benchmark import (
+    BACKEND_CHROMA,
+    BACKEND_QDRANT,
     BenchmarkError,
     build_benchmark_config,
+    client_version_for_backend,
     build_ollama_messages,
     load_dataset,
+    new_report,
+    parse_args,
     parse_ollama_models,
     score_text,
     validate_dataset,
@@ -149,3 +154,60 @@ def test_benchmark_config_forces_server_and_bounded_pressure() -> None:
     assert config.tiers.healthy_min == 1.0
     assert config.decay.lambda_base == 1.0
     assert config.decay.inertia_strength == 0.0
+
+
+def test_parse_args_defaults_to_chroma_backend() -> None:
+    args = parse_args([])
+
+    assert args.backend == BACKEND_CHROMA
+
+
+def test_parse_args_accepts_qdrant_backend() -> None:
+    args = parse_args(["--backend", "qdrant"])
+
+    assert args.backend == BACKEND_QDRANT
+
+
+def test_parse_args_rejects_unknown_backend() -> None:
+    with pytest.raises(SystemExit):
+        parse_args(["--backend", "redis"])
+
+
+def test_benchmark_config_for_qdrant_uses_memory_without_chroma_server() -> None:
+    config = build_benchmark_config(
+        DMFConfig(),
+        collection_name="dmf_benchmark_test",
+        backend=BACKEND_QDRANT,
+        chroma_host="ignored-host",
+        chroma_port=6553,
+    )
+
+    assert config.ltm.storage_type == "qdrant"
+    assert config.ltm.qdrant_mode == "memory"
+    assert config.ltm.collection_name == "dmf_benchmark_test"
+    assert config.ltm.cards_enabled is False
+    assert config.ltm.chroma_mode == DMFConfig().ltm.chroma_mode
+    assert config.capacity.token_budget == 48
+
+
+def test_benchmark_report_contains_backend_and_client_version() -> None:
+    dataset = load_dataset(DATASET_PATH)
+
+    report = new_report(
+        dataset,
+        "qwen2.5:0.5b",
+        "http://localhost:11434",
+        backend=BACKEND_QDRANT,
+    )
+    report["ltm"] = {
+        "backend": BACKEND_QDRANT,
+        "client_version": client_version_for_backend(BACKEND_QDRANT),
+        "collection": "dmf_benchmark_test",
+        "count_after_seed": 3,
+    }
+
+    assert report["backend"] == BACKEND_QDRANT
+    assert report["ltm"]["backend"] == BACKEND_QDRANT
+    assert report["ltm"]["client_version"]
+    assert report["ltm"]["collection"] == "dmf_benchmark_test"
+    assert report["ltm"]["count_after_seed"] == 3

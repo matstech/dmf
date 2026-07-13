@@ -22,6 +22,7 @@
 
 from __future__ import annotations
 
+import threading
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -194,6 +195,23 @@ def test_constructor_rejects_non_positive_vector_dimension() -> None:
         )
 
 
+def test_constructor_accepts_custom_vector_dimension() -> None:
+    client = QdrantClient(":memory:")
+
+    hook = QdrantLTMHook(
+        collection_name="custom_dim",
+        vector_config=VectorConfig(vector_dim=3),
+        embed_text=lambda text: np.array([1.0, 0.0, 0.0], dtype=np.float32),
+        client=client,
+    )
+
+    hook.archive(_make_entry(1, "alpha", [1.0, 0.0, 0.0]))
+
+    info = client.get_collection("custom_dim")
+    assert info.config.params.vectors.size == 3
+    assert hook.search_raw([1.0, 0.0, 0.0], k=1)[0].record.record_id == "record:1"
+
+
 def test_point_ids_are_stable_and_separate_by_record_type() -> None:
     assert _raw_point_id("record:7") == _raw_point_id("record:7")
     assert _card_point_id("record:7") == _card_point_id("record:7")
@@ -333,6 +351,34 @@ def test_search_raw_skips_malformed_payloads() -> None:
     assert [hit.record.record_id for hit in hits] == ["record:1"]
 
 
+def test_search_raw_skips_payloads_without_raw_record_or_with_wrong_types() -> None:
+    client = QdrantClient(":memory:")
+    hook = _hook(client=client)
+    hook.archive(_make_entry(1, "alpha", [1.0, 0.0]))
+    client.upsert(
+        collection_name="test_raw",
+        points=[
+            models.PointStruct(
+                id=_raw_point_id("missing_raw_record"),
+                vector=[1.0, 0.0],
+                payload={"record_id": "missing_raw_record"},
+            ),
+            models.PointStruct(
+                id=_raw_point_id("wrong_raw_record_type"),
+                vector=[1.0, 0.0],
+                payload={"raw_record": 42},
+            ),
+        ],
+        wait=True,
+    )
+
+    hits = hook.search_raw([1.0, 0.0], k=5)
+    records = hook.read_all()
+
+    assert [hit.record.record_id for hit in hits] == ["record:1"]
+    assert [record.record_id for record in records] == ["record:1"]
+
+
 def test_read_all_uses_pages_and_orders_records() -> None:
     hook = _hook()
     for entry in [
@@ -345,6 +391,23 @@ def test_read_all_uses_pages_and_orders_records() -> None:
     records = hook.read_all()
 
     assert [record.interaction_id for record in records] == [1, 2, 300]
+
+
+def test_read_all_scrolls_multiple_pages() -> None:
+    hook = QdrantLTMHook(
+        collection_name="many_records",
+        vector_config=VectorConfig(vector_dim=2),
+        embed_text=lambda text: np.array([1.0, 0.0], dtype=np.float32),
+        client=QdrantClient(":memory:"),
+    )
+    for index in range(260):
+        hook.archive(_make_entry(index, "alpha", [1.0, 0.0]))
+
+    records = hook.read_all()
+
+    assert len(records) == 260
+    assert [record.interaction_id for record in records[:3]] == [0, 1, 2]
+    assert [record.interaction_id for record in records[-3:]] == [257, 258, 259]
 
 
 def test_count_and_clear_preserve_collection() -> None:
@@ -368,6 +431,49 @@ def test_backend_errors_are_propagated() -> None:
 
     with pytest.raises(RuntimeError, match="backend failed"):
         hook.search_raw([1.0, 0.0], k=1)
+
+
+def test_archive_concurrent_calls_are_serialized_by_lock() -> None:
+    hook = QdrantLTMHook(
+        collection_name="concurrent_raw",
+        vector_config=VectorConfig(vector_dim=2),
+        embed_text=lambda text: np.array([1.0, 0.0], dtype=np.float32),
+        client=QdrantClient(":memory:"),
+    )
+    errors: list[BaseException] = []
+
+    def archive(index: int) -> None:
+        try:
+            hook.archive(_make_entry(index, "alpha", [1.0, 0.0]))
+        except BaseException as exc:  # pragma: no cover - asserted below
+            errors.append(exc)
+
+    threads = [threading.Thread(target=archive, args=(index,)) for index in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert errors == []
+    assert hook.count() == 8
+    assert [record.interaction_id for record in hook.read_all()] == list(range(8))
+
+
+def test_incompatible_collection_error_names_backend_collection_expected_observed() -> None:
+    client = QdrantClient(":memory:")
+    client.create_collection(
+        collection_name="bad_error",
+        vectors_config=models.VectorParams(size=3, distance=models.Distance.DOT),
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        _hook(collection_name="bad_error", client=client)
+
+    message = str(exc_info.value)
+    assert "Qdrant" in message
+    assert "bad_error" in message
+    assert "expected" in message
+    assert "observed" in message
 
 
 def test_cards_disabled_does_not_create_collection_or_return_card_hits() -> None:

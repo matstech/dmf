@@ -19,6 +19,13 @@ for maintainers but are not compatibility guarantees for external consumers.
       filters:
         - "!^__"
 
+## Qdrant filter implementation
+
+::: dmf.memory.ltm_hooks.qdrant_filters
+    options:
+      filters:
+        - "!^__"
+
 ## LTM protocol and null backend
 
 ::: dmf.models.ltm_hook

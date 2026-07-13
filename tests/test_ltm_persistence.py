@@ -625,6 +625,39 @@ class TestFromDMFConfigLTMResolution:
         assert captured["collection_name"] == cfg.ltm.collection_name
         assert captured["distance_threshold"] == cfg.ltm.distance_threshold
 
+    def test_qdrant_hook_receives_vector_and_card_settings(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        captured: dict[str, object] = {}
+
+        class FakeQdrantLTMHook:
+            def __init__(self, **kwargs: object) -> None:
+                captured.update(kwargs)
+
+        monkeypatch.setattr(ltm_hooks, "QdrantLTMHook", FakeQdrantLTMHook)
+        cfg = DMFConfig(
+            ltm=LTMSettings(
+                storage_type="qdrant",
+                collection_name="raw_custom",
+                cards_enabled=True,
+                cards_path=str(tmp_path / "cards.jsonl"),
+                cards_collection_name="cards_custom",
+            ),
+            nlp=NLPSettings(vector_dim=8),
+            capacity=CapacitySettings(window_size=5),
+        )
+
+        tm = TemporalMemory.from_dmf_config(cfg)
+
+        assert isinstance(tm._ltm_hook, FakeQdrantLTMHook)
+        assert captured["collection_name"] == "raw_custom"
+        assert captured["cards_enabled"] is True
+        assert captured["cards_path"] == str(tmp_path / "cards.jsonl")
+        assert captured["cards_collection_name"] == "cards_custom"
+        assert captured["vector_config"] == VectorConfig(vector_dim=8, window_size=5)
+
     def test_explicit_hook_overrides_qdrant_config(
         self,
         monkeypatch: pytest.MonkeyPatch,
