@@ -199,9 +199,9 @@ def test_qdrant_ltm_builds_hook_with_connection_and_vector_config(
     assert captured["collection_name"] == "qdrant_raw"
     assert captured["distance_threshold"] == 0.27
     assert captured["vector_config"] is vector_config
-    assert "cards_enabled" not in captured
-    assert "cards_path" not in captured
-    assert "cards_collection_name" not in captured
+    assert captured["cards_enabled"] is True
+    assert captured["cards_path"] == "cards.jsonl"
+    assert captured["cards_collection_name"] == "qdrant_cards"
     assert captured["connection"].mode is QdrantConnectionMode.MEMORY
 
 
