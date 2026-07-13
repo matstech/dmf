@@ -42,6 +42,7 @@ from dmf.memory.ltm_hooks.qdrant_client import (
     QdrantConnectionConfig,
     build_qdrant_client,
 )
+from dmf.memory.ltm_hooks.qdrant_filters import build_qdrant_filter
 from dmf.memory.ltm_hooks.vector_types import (
     cosine_similarity_to_distance,
     distance_threshold_to_min_similarity,
@@ -49,6 +50,7 @@ from dmf.memory.ltm_hooks.vector_types import (
 )
 from dmf.models.memory import MemoryEntry
 from dmf.models.raw_ltm import RawLTMRecord, RawRecallHit
+from dmf.models.recall_filter import RecallFilter
 from dmf.utils.config import VectorConfig
 from dmf.utils.constants import (
     DEFAULT_LTM_CARDS_COLLECTION_NAME,
@@ -144,11 +146,19 @@ class QdrantLTMHook:
                 field="card source",
             )
             for card in self._card_projector.project(entry):
+                card_payload = build_card_payload(card)
+                card_payload.update(
+                    {
+                        "raw_role": raw_record.role,
+                        "raw_interaction_id": raw_record.interaction_id,
+                        "raw_created_at": raw_record.created_at,
+                    }
+                )
                 card_points.append(
                     models.PointStruct(
                         id=_card_point_id(card.card_id),
                         vector=source_vector,
-                        payload=build_card_payload(card),
+                        payload=card_payload,
                     )
                 )
 
@@ -171,6 +181,8 @@ class QdrantLTMHook:
         self,
         query_vector: list[float],
         k: int = 5,
+        *,
+        recall_filter: RecallFilter | None = None,
     ) -> list[RawRecallHit]:
         """Retrieve top-k raw records by Qdrant cosine similarity."""
         if k <= 0:
@@ -187,6 +199,7 @@ class QdrantLTMHook:
             limit=k,
             with_payload=True,
             with_vectors=False,
+            query_filter=build_qdrant_filter(recall_filter, target="raw"),
             score_threshold=distance_threshold_to_min_similarity(
                 self._distance_threshold
             ),
@@ -216,6 +229,8 @@ class QdrantLTMHook:
         self,
         query_vector: list[float],
         k: int = 5,
+        *,
+        recall_filter: RecallFilter | None = None,
     ) -> list[RawRecallHit]:
         """Retrieve source raw records for the top-k matching projected cards."""
         if not self._cards_enabled:
@@ -234,6 +249,7 @@ class QdrantLTMHook:
             limit=k,
             with_payload=True,
             with_vectors=False,
+            query_filter=build_qdrant_filter(recall_filter, target="card"),
             score_threshold=distance_threshold_to_min_similarity(
                 self._distance_threshold
             ),

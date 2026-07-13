@@ -41,6 +41,7 @@ from dmf.memory.ltm_hooks.qdrant_hook import (
 from dmf.models.analysis import AnalysisReport, InteractionSignals
 from dmf.models.memory import MemoryEntry
 from dmf.models.raw_ltm import RawRecallHit
+from dmf.models.recall_filter import RecallFilter
 from dmf.models.status import SurvivalStatus
 from dmf.utils.config import VectorConfig
 
@@ -226,6 +227,29 @@ def test_search_raw_returns_ranking_threshold_and_scores() -> None:
     assert hits[0].distance == pytest.approx(0.0)
     assert hits[1].similarity_score == pytest.approx(0.8)
     assert hits[1].distance == pytest.approx(0.2)
+
+
+def test_search_raw_applies_backend_neutral_filter() -> None:
+    hook = _hook(distance_threshold=1.0)
+    hook.archive(_make_entry(1, "alpha", [1.0, 0.0]))
+    hook.archive(_make_entry(2, "beta", [0.0, 1.0]))
+    hook.archive(_make_entry(3, "edge", [0.8, 0.6]))
+
+    hits = hook.search_raw(
+        [1.0, 0.0],
+        k=3,
+        recall_filter=RecallFilter(
+            record_ids=("record:1", "record:3"),
+            excluded_record_ids=("record:1",),
+            roles=("unknown",),
+            interaction_id_min=2,
+            interaction_id_max=3,
+            created_at_min=2.0,
+            created_at_max=3.0,
+        ),
+    )
+
+    assert [hit.record.record_id for hit in hits] == ["record:3"]
 
 
 def test_search_raw_includes_threshold_edge() -> None:
@@ -429,6 +453,27 @@ def test_search_cards_returns_ranked_source_records() -> None:
     assert hits[0].similarity_score == pytest.approx(1.0)
     assert hits[0].distance == pytest.approx(0.0)
     assert hits[0].rank_hint == 0
+
+
+def test_search_cards_applies_backend_neutral_filter() -> None:
+    hook = _hook(cards_enabled=True, distance_threshold=1.0)
+    hook.archive(_make_card_entry(10, "alpha", [1.0, 0.0]))
+    hook.archive(_make_card_entry(20, "beta", [0.0, 1.0]))
+
+    hits = hook.search_cards(
+        [1.0, 0.0],
+        k=2,
+        recall_filter=RecallFilter(
+            record_ids=("record:10", "record:20"),
+            excluded_record_ids=("record:20",),
+            roles=("unknown",),
+            interaction_id_min=10,
+            interaction_id_max=10,
+            card_kinds=("preference",),
+        ),
+    )
+
+    assert [hit.record.record_id for hit in hits] == ["record:10"]
 
 
 def test_search_cards_deduplicates_source_lookup_but_preserves_duplicate_hits() -> None:

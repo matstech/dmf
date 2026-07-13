@@ -117,6 +117,7 @@ from dmf.models.analysis import AnalysisReport, MemoryLineage
 from dmf.models.ltm_hook import LTMHook, NullLTMHook
 from dmf.models.memory import MemoryEntry
 from dmf.models.raw_ltm import ContextualizedRecallCandidate, RawLTMRecord, RawRecallHit
+from dmf.models.recall_filter import RecallFilter
 from dmf.models.status import classify_survival_status
 from dmf.utils.config import DecayConfig, PruningPriorityConfig, VectorConfig
 
@@ -756,6 +757,7 @@ class TemporalMemory:
         k: int | None = None,
         *,
         active_guard: _ActiveContextGuard | None = None,
+        recall_filter: RecallFilter | None = None,
     ) -> list[RawRecallHit]:
         """Fetch raw recall hits from the configured LTM hook.
         
@@ -763,6 +765,7 @@ class TemporalMemory:
             query_vector: See the function signature and surrounding type hints.
             k: See the function signature and surrounding type hints.
             active_guard: See the function signature and surrounding type hints.
+            recall_filter: Optional backend-neutral metadata filter.
         
         Returns:
             See the return type annotation.
@@ -770,10 +773,16 @@ class TemporalMemory:
         Raises:
             None.
         """
-        raw_hits = self._ltm_hook.search_raw(
-            query_vector.tolist(),
-            k=k if k is not None else self.config.ltm_recall_limit,
-        )
+        search_k = k if k is not None else self.config.ltm_recall_limit
+        query_payload = query_vector.tolist()
+        if recall_filter is None:
+            raw_hits = self._ltm_hook.search_raw(query_payload, k=search_k)
+        else:
+            raw_hits = self._ltm_hook.search_raw(
+                query_payload,
+                k=search_k,
+                recall_filter=recall_filter,
+            )
         hits = self._validate_raw_recall_hits(raw_hits)
         self._recall_diagnostics["raw_candidates"] = [
             self._serialise_raw_recall_hit(hit)
