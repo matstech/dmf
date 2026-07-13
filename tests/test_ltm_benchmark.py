@@ -11,14 +11,18 @@ from integrationtest.run_ltm_benchmark import (
     BACKEND_CHROMA,
     BACKEND_QDRANT,
     BenchmarkError,
+    OllamaClient,
     build_benchmark_config,
     client_version_for_backend,
     build_ollama_messages,
     load_dataset,
+    load_report,
     new_report,
     parse_args,
     parse_ollama_models,
+    render_summary_table,
     score_text,
+    summarize_report,
     validate_dataset,
     validate_loopback_host,
     validate_loopback_url,
@@ -130,6 +134,36 @@ def test_ollama_messages_are_stateless_and_contain_only_current_inputs() -> None
     assert "seed history" not in serialized
 
 
+def test_ollama_chat_disables_model_thinking() -> None:
+    captured: dict[str, object] = {}
+
+    class FakeResponse:
+        content = b'{"message": {"content": "ok"}}'
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {"message": {"content": "ok"}}
+
+    class FakeClient:
+        def post(self, path: str, *, json: dict[str, object]) -> FakeResponse:
+            captured["path"] = path
+            captured["json"] = json
+            return FakeResponse()
+
+    client = OllamaClient("http://localhost:11434", "qwen2.5:0.5b")
+    client._client = FakeClient()  # type: ignore[assignment]
+
+    response, latency_ms = client.chat("Domanda?", "Contesto")
+
+    assert response == "ok"
+    assert latency_ms >= 0
+    assert captured["path"] == "/api/chat"
+    assert captured["json"]["think"] is False  # type: ignore[index]
+    assert captured["json"]["stream"] is False  # type: ignore[index]
+
+
 def test_parse_ollama_models_validates_shape() -> None:
     assert parse_ollama_models({"models": [{"name": "qwen2.5:0.5b"}]}) == {
         "qwen2.5:0.5b"
@@ -211,3 +245,146 @@ def test_benchmark_report_contains_backend_and_client_version() -> None:
     assert report["ltm"]["client_version"]
     assert report["ltm"]["collection"] == "dmf_benchmark_test"
     assert report["ltm"]["count_after_seed"] == 3
+
+
+def test_summary_table_is_computed_from_report_json(tmp_path: Path) -> None:
+    report = {
+        "status": "complete",
+        "backend": BACKEND_QDRANT,
+        "benchmark_id": "bench-test",
+        "ollama": {"model": "qwen2.5:0.5b", "base_url": "http://localhost:11434"},
+        "ltm": {
+            "backend": BACKEND_QDRANT,
+            "collection": "dmf_benchmark_test",
+            "count_after_seed": 4,
+        },
+        "seed": {"seed_turn_count": 3, "filler_turn_count": 1, "count_after_seed": 4},
+        "aggregate": {
+            "case_count": 2,
+            "completed_case_count": 2,
+            "failed_case_count": 0,
+            "retrieval_success_count": 1,
+            "retrieval_success_rate": 0.5,
+            "mean_answer_score": 0.625,
+            "total_ollama_latency_ms": 300.0,
+            "mean_ollama_latency_ms": 150.0,
+        },
+        "cases": [
+            {
+                "id": "case-a",
+                "category": "preference",
+                "error": None,
+                "retrieval_success": True,
+                "ollama_latency_ms": 100.0,
+                "retrieval_score": {
+                    "matched_groups": [["alpha"], ["beta"]],
+                    "missing_groups": [],
+                    "promoted_obsolete_groups": [],
+                },
+                "answer_score": {
+                    "score": 1.0,
+                    "matched_groups": [["alpha"]],
+                    "missing_groups": [],
+                    "promoted_obsolete_groups": [],
+                },
+            },
+            {
+                "id": "case-b",
+                "category": "constraint",
+                "error": None,
+                "retrieval_success": False,
+                "ollama_latency_ms": 200.0,
+                "retrieval_score": {
+                    "matched_groups": [["gamma"]],
+                    "missing_groups": [["delta"]],
+                    "promoted_obsolete_groups": [["old"]],
+                },
+                "answer_score": {
+                    "score": 0.25,
+                    "matched_groups": [["gamma"]],
+                    "missing_groups": [["delta"]],
+                    "promoted_obsolete_groups": [["old"]],
+                },
+            },
+        ],
+        "errors": [],
+    }
+    path = tmp_path / "report.json"
+    path.write_text(json.dumps(report), encoding="utf-8")
+
+    summary = summarize_report(load_report(path))
+    table = render_summary_table(summary)
+
+    assert summary["retrieval_precision"] == pytest.approx(0.75)
+    assert summary["retrieval_recall"] == pytest.approx(0.75)
+    assert summary["answer_precision"] == pytest.approx(2 / 3)
+    assert summary["answer_recall"] == pytest.approx(2 / 3)
+    assert summary["min_ollama_latency_ms"] == 100.0
+    assert summary["p50_ollama_latency_ms"] == 150.0
+    assert summary["max_ollama_latency_ms"] == 200.0
+    assert "Benchmark aggregate results" in table
+    assert "Retrieval term precision" in table
+    assert "75.00%" in table
+    assert "Retrieval success overall" in table
+    assert "Answer term recall" in table
+    assert "66.67%" in table
+    assert "Ollama latency p95" in table
+    assert "Throughput" in table
+
+
+def test_summary_distinguishes_completed_and_overall_retrieval_rates() -> None:
+    report = {
+        "status": "partial_failure",
+        "backend": BACKEND_QDRANT,
+        "benchmark_id": "bench-test",
+        "ollama": {"model": "qwen2.5:0.5b"},
+        "ltm": {"collection": "dmf_benchmark_test"},
+        "seed": {"count_after_seed": 4},
+        "aggregate": {
+            "case_count": 3,
+            "completed_case_count": 2,
+            "failed_case_count": 1,
+            "retrieval_success_count": 1,
+            "retrieval_success_rate": 1 / 3,
+        },
+        "cases": [
+            {
+                "id": "case-a",
+                "category": "preference",
+                "error": None,
+                "retrieval_success": True,
+                "retrieval_score": {"matched_groups": [["a"]], "missing_groups": []},
+                "answer_score": {"matched_groups": [["a"]], "missing_groups": []},
+            },
+            {
+                "id": "case-b",
+                "category": "constraint",
+                "error": None,
+                "retrieval_success": False,
+                "retrieval_score": {"matched_groups": [], "missing_groups": [["b"]]},
+                "answer_score": {"matched_groups": [], "missing_groups": [["b"]]},
+            },
+            {
+                "id": "case-c",
+                "category": "state",
+                "error": "BenchmarkError: empty content",
+                "retrieval_success": False,
+            },
+        ],
+    }
+
+    summary = summarize_report(report)
+    table = render_summary_table(summary)
+
+    assert summary["retrieval_success_rate"] == pytest.approx(0.5)
+    assert summary["retrieval_success_rate_overall"] == pytest.approx(1 / 3)
+    assert "50.00%" in table
+    assert "33.33%" in table
+
+
+def test_load_report_rejects_non_object_json(tmp_path: Path) -> None:
+    path = tmp_path / "report.json"
+    path.write_text("[]", encoding="utf-8")
+
+    with pytest.raises(BenchmarkError, match="JSON object"):
+        load_report(path)

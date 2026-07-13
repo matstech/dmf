@@ -45,7 +45,7 @@ from dmf.utils.constants import DEFAULT_EMBEDDING_CACHE_DIR  # noqa: E402
 DATASET_SCHEMA_VERSION = 1
 REPORT_SCHEMA_VERSION = 1
 SCORER_VERSION = "term-coverage-v1"
-DEFAULT_MODEL = "qwen2.5:0.5b"
+DEFAULT_MODEL = "gemma4:e4b"
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 DEFAULT_CHROMA_HOST = "localhost"
 DEFAULT_CHROMA_PORT = 8000
@@ -464,6 +464,7 @@ class OllamaClient:
                 "model": self.model,
                 "messages": build_ollama_messages(question, context),
                 "stream": False,
+                "think": False,
                 "options": {"temperature": 0, "num_predict": 128},
             },
         )
@@ -765,14 +766,17 @@ def aggregate_results(results: list[dict[str, object]]) -> dict[str, object]:
         if isinstance(result.get("ollama_latency_ms"), (int, float))
     ]
     total = len(results)
-    retrieval_rate = retrieval_successes / total if total else 0.0
+    completed_count = len(completed)
+    retrieval_rate = retrieval_successes / completed_count if completed_count else 0.0
+    overall_retrieval_rate = retrieval_successes / total if total else 0.0
     mean_answer = sum(answer_scores) / len(answer_scores) if answer_scores else 0.0
     return {
         "case_count": total,
-        "completed_case_count": len(completed),
-        "failed_case_count": total - len(completed),
+        "completed_case_count": completed_count,
+        "failed_case_count": total - completed_count,
         "retrieval_success_count": retrieval_successes,
         "retrieval_success_rate": round(retrieval_rate, 4),
+        "retrieval_success_rate_overall": round(overall_retrieval_rate, 4),
         "mean_answer_score": round(mean_answer, 4),
         "total_ollama_latency_ms": round(sum(latencies), 3),
         "mean_ollama_latency_ms": round(sum(latencies) / len(latencies), 3)
@@ -783,6 +787,281 @@ def aggregate_results(results: list[dict[str, object]]) -> dict[str, object]:
             "mean_answer_score_at_least_0_70": mean_answer >= 0.70,
         },
     }
+
+
+def _as_mapping(value: object) -> dict[str, object]:
+    return value if isinstance(value, dict) else {}
+
+
+def _as_sequence(value: object) -> list[object]:
+    return value if isinstance(value, list) else []
+
+
+def _format_int(value: object) -> str:
+    return str(value) if isinstance(value, int) else "-"
+
+
+def _format_float(value: object, *, digits: int = 4, suffix: str = "") -> str:
+    if not isinstance(value, (int, float)):
+        return "-"
+    return f"{float(value):.{digits}f}{suffix}"
+
+
+def _format_rate(value: object) -> str:
+    if not isinstance(value, (int, float)):
+        return "-"
+    return f"{float(value) * 100:.2f}%"
+
+
+def _safe_rate(numerator: int, denominator: int) -> float | None:
+    if denominator <= 0:
+        return None
+    return numerator / denominator
+
+
+def _f1(precision: float | None, recall: float | None) -> float | None:
+    if precision is None or recall is None or precision + recall == 0:
+        return None
+    return 2 * precision * recall / (precision + recall)
+
+
+def _percentile(values: list[float], percentile: float) -> float | None:
+    if not values:
+        return None
+    if len(values) == 1:
+        return values[0]
+    ordered = sorted(values)
+    rank = (len(ordered) - 1) * percentile
+    lower = int(rank)
+    upper = min(lower + 1, len(ordered) - 1)
+    weight = rank - lower
+    return ordered[lower] * (1 - weight) + ordered[upper] * weight
+
+
+def _score_group_counts(score: object) -> tuple[int, int, int]:
+    score_map = _as_mapping(score)
+    matched = len(_as_sequence(score_map.get("matched_groups")))
+    missing = len(_as_sequence(score_map.get("missing_groups")))
+    promoted_obsolete = len(_as_sequence(score_map.get("promoted_obsolete_groups")))
+    return matched, missing, promoted_obsolete
+
+
+def summarize_report(report: dict[str, object]) -> dict[str, object]:
+    """Compute console summary metrics from the persisted benchmark report shape."""
+    cases = [_as_mapping(case) for case in _as_sequence(report.get("cases"))]
+    completed = [case for case in cases if case.get("error") is None]
+    aggregate = _as_mapping(report.get("aggregate"))
+    seed = _as_mapping(report.get("seed"))
+    ltm = _as_mapping(report.get("ltm"))
+
+    retrieval_matched = 0
+    retrieval_missing = 0
+    retrieval_obsolete = 0
+    answer_matched = 0
+    answer_missing = 0
+    answer_obsolete = 0
+    retrieval_successes = 0
+    answer_scores: list[float] = []
+    latencies: list[float] = []
+    categories: set[str] = set()
+
+    for case in completed:
+        if isinstance(case.get("category"), str):
+            categories.add(str(case["category"]))
+        if case.get("retrieval_success") is True:
+            retrieval_successes += 1
+        matched, missing, obsolete = _score_group_counts(case.get("retrieval_score"))
+        retrieval_matched += matched
+        retrieval_missing += missing
+        retrieval_obsolete += obsolete
+        matched, missing, obsolete = _score_group_counts(case.get("answer_score"))
+        answer_matched += matched
+        answer_missing += missing
+        answer_obsolete += obsolete
+        answer_score = _as_mapping(case.get("answer_score")).get("score")
+        if isinstance(answer_score, (int, float)):
+            answer_scores.append(float(answer_score))
+        latency = case.get("ollama_latency_ms")
+        if isinstance(latency, (int, float)):
+            latencies.append(float(latency))
+
+    retrieval_required = retrieval_matched + retrieval_missing
+    answer_required = answer_matched + answer_missing
+    total_case_count = len(cases)
+    completed_case_count = len(completed)
+    retrieval_precision = _safe_rate(
+        retrieval_matched,
+        retrieval_matched + retrieval_obsolete,
+    )
+    retrieval_recall = _safe_rate(retrieval_matched, retrieval_required)
+    answer_precision = _safe_rate(answer_matched, answer_matched + answer_obsolete)
+    answer_recall = _safe_rate(answer_matched, answer_required)
+    total_latency_ms = sum(latencies)
+
+    return {
+        "status": report.get("status"),
+        "backend": report.get("backend"),
+        "benchmark_id": report.get("benchmark_id"),
+        "model": _as_mapping(report.get("ollama")).get("model"),
+        "collection": ltm.get("collection") or _as_mapping(report.get("chroma")).get("collection"),
+        "case_count": int(aggregate.get("case_count", total_case_count)),
+        "completed_case_count": int(aggregate.get("completed_case_count", completed_case_count)),
+        "failed_case_count": int(
+            aggregate.get("failed_case_count", total_case_count - completed_case_count)
+        ),
+        "category_count": len(categories),
+        "seed_turn_count": seed.get("seed_turn_count"),
+        "filler_turn_count": seed.get("filler_turn_count"),
+        "count_after_seed": seed.get("count_after_seed")
+        or seed.get("chroma_count_after_seed")
+        or ltm.get("count_after_seed"),
+        "retrieval_success_count": int(
+            aggregate.get("retrieval_success_count", retrieval_successes)
+        ),
+        "retrieval_success_rate": (
+            _safe_rate(retrieval_successes, completed_case_count)
+            if completed_case_count
+            else None
+        ),
+        "retrieval_success_rate_overall": float(
+            aggregate.get(
+                "retrieval_success_rate_overall",
+                _safe_rate(retrieval_successes, total_case_count) or 0.0,
+            )
+        ),
+        "retrieval_precision": retrieval_precision,
+        "retrieval_recall": retrieval_recall,
+        "retrieval_f1": _f1(retrieval_precision, retrieval_recall),
+        "retrieval_matched_terms": retrieval_matched,
+        "retrieval_required_terms": retrieval_required,
+        "answer_precision": answer_precision,
+        "answer_recall": answer_recall,
+        "answer_f1": _f1(answer_precision, answer_recall),
+        "answer_matched_terms": answer_matched,
+        "answer_required_terms": answer_required,
+        "mean_answer_score": float(
+            aggregate.get(
+                "mean_answer_score",
+                sum(answer_scores) / len(answer_scores) if answer_scores else 0.0,
+            )
+        ),
+        "latency_count": len(latencies),
+        "total_ollama_latency_ms": float(
+            aggregate.get("total_ollama_latency_ms", round(total_latency_ms, 3))
+        ),
+        "mean_ollama_latency_ms": aggregate.get(
+            "mean_ollama_latency_ms",
+            round(total_latency_ms / len(latencies), 3) if latencies else None,
+        ),
+        "min_ollama_latency_ms": min(latencies) if latencies else None,
+        "p50_ollama_latency_ms": _percentile(latencies, 0.50),
+        "p95_ollama_latency_ms": _percentile(latencies, 0.95),
+        "max_ollama_latency_ms": max(latencies) if latencies else None,
+        "throughput_cases_per_second": (
+            len(latencies) / (total_latency_ms / 1_000) if total_latency_ms > 0 else None
+        ),
+    }
+
+
+def render_summary_table(summary: dict[str, object]) -> str:
+    """Render aggregate benchmark metrics as a stable ASCII table."""
+    completed = summary.get("completed_case_count")
+    failed = summary.get("failed_case_count")
+    case_count = summary.get("case_count")
+    retrieval_success = summary.get("retrieval_success_count")
+    rows = [
+        ("Status", str(summary.get("status") or "-")),
+        ("Backend", str(summary.get("backend") or "-")),
+        ("Model", str(summary.get("model") or "-")),
+        ("Benchmark", str(summary.get("benchmark_id") or "-")),
+        ("Collection", str(summary.get("collection") or "-")),
+        ("Cases", f"{_format_int(completed)} completed / {_format_int(case_count)} total"),
+        ("Failed cases", _format_int(failed)),
+        ("Categories", _format_int(summary.get("category_count"))),
+        ("Seed raw records", _format_int(summary.get("count_after_seed"))),
+        ("Retrieval success", f"{_format_int(retrieval_success)} cases"),
+        (
+            "Retrieval success rate",
+            _format_rate(summary.get("retrieval_success_rate")),
+        ),
+        (
+            "Retrieval success overall",
+            _format_rate(summary.get("retrieval_success_rate_overall")),
+        ),
+        ("Retrieval term precision", _format_rate(summary.get("retrieval_precision"))),
+        ("Retrieval term recall", _format_rate(summary.get("retrieval_recall"))),
+        ("Retrieval term F1", _format_rate(summary.get("retrieval_f1"))),
+        (
+            "Retrieval term coverage",
+            f"{_format_int(summary.get('retrieval_matched_terms'))}/"
+            f"{_format_int(summary.get('retrieval_required_terms'))}",
+        ),
+        ("Answer mean score", _format_float(summary.get("mean_answer_score"))),
+        ("Answer term precision", _format_rate(summary.get("answer_precision"))),
+        ("Answer term recall", _format_rate(summary.get("answer_recall"))),
+        ("Answer term F1", _format_rate(summary.get("answer_f1"))),
+        (
+            "Answer term coverage",
+            f"{_format_int(summary.get('answer_matched_terms'))}/"
+            f"{_format_int(summary.get('answer_required_terms'))}",
+        ),
+        ("Latency samples", _format_int(summary.get("latency_count"))),
+        (
+            "Ollama latency total",
+            _format_float(summary.get("total_ollama_latency_ms"), digits=3, suffix=" ms"),
+        ),
+        (
+            "Ollama latency mean",
+            _format_float(summary.get("mean_ollama_latency_ms"), digits=3, suffix=" ms"),
+        ),
+        (
+            "Ollama latency min",
+            _format_float(summary.get("min_ollama_latency_ms"), digits=3, suffix=" ms"),
+        ),
+        (
+            "Ollama latency p50",
+            _format_float(summary.get("p50_ollama_latency_ms"), digits=3, suffix=" ms"),
+        ),
+        (
+            "Ollama latency p95",
+            _format_float(summary.get("p95_ollama_latency_ms"), digits=3, suffix=" ms"),
+        ),
+        (
+            "Ollama latency max",
+            _format_float(summary.get("max_ollama_latency_ms"), digits=3, suffix=" ms"),
+        ),
+        (
+            "Throughput",
+            _format_float(
+                summary.get("throughput_cases_per_second"),
+                digits=3,
+                suffix=" cases/s",
+            ),
+        ),
+    ]
+    metric_width = max(len(metric) for metric, _ in rows)
+    value_width = max(len(value) for _, value in rows)
+    border = f"+-{'-' * metric_width}-+-{'-' * value_width}-+"
+    lines = [
+        "Benchmark aggregate results",
+        border,
+        f"| {'Metric'.ljust(metric_width)} | {'Value'.ljust(value_width)} |",
+        border,
+    ]
+    lines.extend(
+        f"| {metric.ljust(metric_width)} | {value.ljust(value_width)} |"
+        for metric, value in rows
+    )
+    lines.append(border)
+    return "\n".join(lines)
+
+
+def load_report(path: Path) -> dict[str, object]:
+    """Read a benchmark report written by this runner."""
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise BenchmarkError("Benchmark report root must be a JSON object")
+    return payload
 
 
 def read_git_commit(repo_root: Path) -> str | None:
@@ -898,7 +1177,7 @@ def main(argv: list[str] | None = None) -> int:
     raw_base_url = os.getenv("OLLAMA_BASE_URL", DEFAULT_OLLAMA_BASE_URL)
     raw_model = os.getenv("OLLAMA_MODEL", DEFAULT_MODEL)
     output_path = args.output or default_output_path()
-    report = new_report(None, raw_model.strip(), "unvalidated")
+    report = new_report(None, raw_model.strip(), "unvalidated", backend=args.backend)
     exit_code = 2
 
     try:
@@ -981,6 +1260,13 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"Benchmark status: {report['status']}")
     print(f"Report: {output_path}")
+    try:
+        persisted_report = load_report(output_path)
+        print(render_summary_table(summarize_report(persisted_report)))
+    except (BenchmarkError, OSError, json.JSONDecodeError) as exc:
+        print(f"Benchmark summary unavailable: {type(exc).__name__}", file=sys.stderr)
+        if exit_code == 0:
+            return 4
     if report["errors"]:
         for error in report["errors"]:
             print(f"Error: {error}", file=sys.stderr)
