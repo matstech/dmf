@@ -644,5 +644,23 @@ def test_search_cards_skips_malformed_payloads_and_orphan_sources() -> None:
     hook.clear()
 
     assert hook.count() == 0
-    assert hook.count_cards() == 3
+    assert hook.count_cards() == 0
     assert hook.search_cards([1.0, 0.0], k=5) == []
+
+
+def test_clear_removes_cards_before_collection_reuse(tmp_path: Path) -> None:
+    hook = _hook(
+        cards_enabled=True,
+        cards_path=tmp_path / "cards.jsonl",
+        distance_threshold=2.0,
+    )
+    hook.archive(_make_card_entry(10, "alpha", [1.0, 0.0]))
+
+    hook.clear()
+    hook.archive(_make_card_entry(20, "beta", [0.0, 1.0]))
+
+    assert hook.count() == 1
+    assert hook.count_cards() == 1
+    assert [
+        hit.record.record_id for hit in hook.search_cards([1.0, 0.0], k=1)
+    ] == ["record:20"]
