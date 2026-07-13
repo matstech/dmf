@@ -186,27 +186,48 @@ Configures the **Long-Term Memory** persistence backend. DMF supports multiple b
 
 | Parameter               | Type     | Default                    | Description                                                                                                                                                                          |
 | ----------------------- | -------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `storage_type`          | `string` | `"chroma"`                 | Backend type. `"chroma"` for ChromaDB vector store with active recall, `"file"` for a write-only JSONL audit trail via `FileLTMHook`, `"null"` for silent discard (useful in tests). |
+| `storage_type`          | `string` | `"chroma"`                 | Backend type. `"chroma"` for ChromaDB vector store with active recall, `"qdrant"` for volatile in-memory Qdrant Local Mode, `"file"` for a write-only JSONL audit trail via `FileLTMHook`, `"null"` for silent discard (useful in tests). |
 | `storage_path`          | `string` | `"data/ltm_archive.jsonl"` | Path to the JSONL archive file. Used when `storage_type = "file"`. Parent directories are created automatically.                                                                     |
 | `chroma_path`           | `string` | `"data/ltm_chroma"`        | Persistence directory used only in `embedded` mode. It is not created by the server client.                                                                                          |
 | `chroma_mode`           | `string` | `"embedded"`               | Chroma deployment: local `embedded` persistence or remote `server`.                                                                                                                  |
+| `qdrant_mode`           | `string` | `"memory"`                 | Qdrant deployment mode. Only `"memory"` is supported and maps to `QdrantClient(":memory:")`; each client has isolated volatile state.                                                |
 | `chroma_host`           | `string` | `"localhost"`              | Server hostname. Required and non-empty in active server mode.                                                                                                                       |
 | `chroma_port`           | `int`    | `8000`                     | Server port in the range 1–65535.                                                                                                                                                    |
 | `chroma_ssl`            | `bool`   | `false`                    | Use HTTPS for the server connection.                                                                                                                                                 |
 | `chroma_tenant`         | `string` | `"default_tenant"`         | Chroma tenant used by embedded and server clients.                                                                                                                                   |
 | `chroma_database`       | `string` | `"default_database"`       | Chroma database used by embedded and server clients.                                                                                                                                 |
 | `chroma_auth_token_env` | `string` | `""`                       | Name of the environment variable containing an optional server Bearer token. The token itself must never be stored in TOML.                                                         |
-| `collection_name`       | `string` | `"dmf_memory"`             | ChromaDB collection name for raw LTM records. Change this to start a fresh memory namespace.                                                                                         |
+| `collection_name`       | `string` | `"dmf_memory"`             | Vector collection name for raw LTM records in Chroma or Qdrant. Change this to start a fresh memory namespace.                                                                       |
 | `recall_limit`          | `int`    | `5`                        | Maximum number of raw records returned per active-recall search query.                                                                                                               |
 | `distance_threshold`    | `float`  | `0.7`                      | Cosine-distance ceiling for recalled raw records, range `[0, 2]`. A value of `0.7` means `cosine_similarity > 0.3`, filtering to related results only.                               |
 | `enabled`               | `bool`   | `true`                     | Master switch. Set to `false` to disable LTM persistence entirely and fall back to `NullLTMHook`.                                                                                    |
 | `cards_enabled`         | `bool`   | `false`                    | Enables the auxiliary structured memory-card index. Raw LTM remains canonical; cards provide an additional retrieval path.                                                           |
 | `cards_path`            | `string` | `"data/ltm_cards.jsonl"`   | Path to the memory-card JSONL index file.                                                                                                                                            |
-| `cards_collection_name` | `string` | `"dmf_cards"`              | ChromaDB collection name for memory cards.                                                                                                                                           |
+| `cards_collection_name` | `string` | `"dmf_cards"`              | Vector collection name for memory cards in Chroma or Qdrant. Must be distinct from `collection_name` for Qdrant.                                                                     |
+
+Minimal Qdrant Local Mode configuration:
+
+```toml
+[ltm]
+enabled = true
+storage_type = "qdrant"
+qdrant_mode = "memory"
+```
+
+Qdrant Local Mode requires the optional package extra:
+
+```bash
+pip install 'dmf-memory[qdrant]'
+```
+
+It is volatile: every `QdrantClient(":memory:")` instance has separate state,
+and all data disappears when the process exits. Local persistent Qdrant and
+Qdrant server mode are not implemented in this release.
 
 For deployment examples, direct construction, authentication behavior, retry
-semantics, version compatibility, migration guidance, Docker integration, and
-the local Ollama benchmark, see [LTM Backends](ltm_backends.md).
+semantics, Qdrant Local Mode details, version compatibility, migration
+guidance, Docker integration, and the local Ollama benchmark, see
+[LTM Backends](ltm_backends.md).
 
 ---
 

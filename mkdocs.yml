@@ -53,6 +53,8 @@ plugins:
         python:
           paths: [.]
           options:
+            docstring_options:
+              warnings: false
             show_root_heading: true
             show_source: true
 

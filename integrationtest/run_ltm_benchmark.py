@@ -1,9 +1,10 @@
-"""Run the opt-in local DMF LTM benchmark against Chroma and Ollama."""
+"""Run the opt-in local DMF LTM benchmark against Chroma/Qdrant and Ollama."""
 
 from __future__ import annotations
 
 import argparse
 import dataclasses
+import importlib.metadata
 import json
 import os
 import re
@@ -13,7 +14,7 @@ import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 from urllib.parse import urlsplit
 from uuid import uuid4
 
@@ -25,11 +26,16 @@ if str(REPO_ROOT) not in sys.path:
 
 from dmf.analysis import EmbeddingEngine, NLPEngine, ScoringEngine  # noqa: E402
 from dmf.memory import Memory, TemporalMemory  # noqa: E402
-from dmf.memory.ltm_hooks import ChromaLTMHook  # noqa: E402
+from dmf.memory.ltm_hooks import ChromaLTMHook, QdrantLTMHook  # noqa: E402
 from dmf.memory.ltm_hooks.chroma_client import (  # noqa: E402
     ChromaConnectionConfig,
     ChromaConnectionMode,
 )
+from dmf.memory.ltm_hooks.qdrant_client import (  # noqa: E402
+    QdrantConnectionConfig,
+    QdrantConnectionMode,
+)
+from dmf.models.ltm_hook import LTMHook  # noqa: E402
 from dmf.models.analysis import InteractionProvenance  # noqa: E402
 from dmf.runtime.pipeline import InteractionPipeline  # noqa: E402
 from dmf.utils.config import NLPConfig, VectorConfig  # noqa: E402
@@ -43,6 +49,9 @@ DEFAULT_MODEL = "qwen2.5:0.5b"
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 DEFAULT_CHROMA_HOST = "localhost"
 DEFAULT_CHROMA_PORT = 8000
+BACKEND_CHROMA = "chroma"
+BACKEND_QDRANT = "qdrant"
+SUPPORTED_BACKENDS = (BACKEND_CHROMA, BACKEND_QDRANT)
 MAX_CASES = 10
 MAX_RESPONSE_CHARS = 4_096
 MAX_RESPONSE_BYTES = 1_000_000
@@ -61,6 +70,18 @@ class BenchmarkError(RuntimeError):
 
 
 TermGroups = tuple[tuple[str, ...], ...]
+
+
+class BenchmarkLTMHook(LTMHook, Protocol):
+    """LTM hook surface needed by the benchmark runtime."""
+
+    def count(self) -> int:
+        """Return indexed raw-record count."""
+        ...
+
+    def clear(self) -> None:
+        """Delete benchmark records from the backend."""
+        ...
 
 
 @dataclass(frozen=True)
@@ -111,7 +132,7 @@ class BenchmarkDataset:
 class BenchmarkRuntime:
     """Public DMF components used by one isolated benchmark run."""
 
-    hook: ChromaLTMHook
+    hook: BenchmarkLTMHook
     temporal_memory: TemporalMemory
     memory: Memory
     pipeline: InteractionPipeline
@@ -466,10 +487,34 @@ def build_benchmark_config(
     base: DMFConfig,
     *,
     collection_name: str,
-    chroma_host: str,
-    chroma_port: int,
+    backend: str = BACKEND_CHROMA,
+    chroma_host: str = DEFAULT_CHROMA_HOST,
+    chroma_port: int = DEFAULT_CHROMA_PORT,
 ) -> DMFConfig:
-    """Derive a controlled server configuration without mutating root settings."""
+    """Derive a controlled benchmark configuration without mutating root settings."""
+    if backend not in SUPPORTED_BACKENDS:
+        raise BenchmarkError(f"Unsupported benchmark backend: {backend!r}")
+    ltm_kwargs: dict[str, object] = {
+        "enabled": True,
+        "storage_type": backend,
+        "collection_name": collection_name,
+        "recall_limit": 64,
+        "distance_threshold": 2.0,
+        "cards_enabled": False,
+    }
+    if backend == BACKEND_CHROMA:
+        ltm_kwargs.update(
+            {
+                "chroma_mode": "server",
+                "chroma_host": chroma_host,
+                "chroma_port": chroma_port,
+                "chroma_ssl": False,
+                "chroma_auth_token_env": "",
+            }
+        )
+    else:
+        ltm_kwargs["qdrant_mode"] = "memory"
+
     return dataclasses.replace(
         base,
         decay=dataclasses.replace(
@@ -486,17 +531,7 @@ def build_benchmark_config(
         ),
         ltm=dataclasses.replace(
             base.ltm,
-            enabled=True,
-            storage_type="chroma",
-            chroma_mode="server",
-            chroma_host=chroma_host,
-            chroma_port=chroma_port,
-            chroma_ssl=False,
-            chroma_auth_token_env="",
-            collection_name=collection_name,
-            recall_limit=64,
-            distance_threshold=2.0,
-            cards_enabled=False,
+            **ltm_kwargs,
         ),
         retrieval=dataclasses.replace(
             base.retrieval,
@@ -520,8 +555,41 @@ def require_local_embedding_cache(repo_root: Path) -> Path:
     return cache
 
 
+def build_benchmark_hook(
+    config: DMFConfig,
+    embedding_engine: EmbeddingEngine,
+    vector_config: VectorConfig,
+) -> BenchmarkLTMHook:
+    """Build the selected vector LTM hook for one benchmark run."""
+    if config.ltm.storage_type == BACKEND_CHROMA:
+        connection = ChromaConnectionConfig(
+            mode=ChromaConnectionMode.SERVER,
+            host=config.ltm.chroma_host,
+            port=config.ltm.chroma_port,
+            ssl=False,
+            tenant=config.ltm.chroma_tenant,
+            database=config.ltm.chroma_database,
+        )
+        return ChromaLTMHook(
+            collection_name=config.ltm.collection_name,
+            distance_threshold=config.ltm.distance_threshold,
+            embed_text=embedding_engine.get_embedding,
+            connection=connection,
+        )
+    if config.ltm.storage_type == BACKEND_QDRANT:
+        connection = QdrantConnectionConfig(mode=QdrantConnectionMode.MEMORY)
+        return QdrantLTMHook(
+            collection_name=config.ltm.collection_name,
+            distance_threshold=config.ltm.distance_threshold,
+            vector_config=vector_config,
+            embed_text=embedding_engine.get_embedding,
+            connection=connection,
+        )
+    raise BenchmarkError(f"Unsupported benchmark backend: {config.ltm.storage_type!r}")
+
+
 def build_runtime(config: DMFConfig) -> BenchmarkRuntime:
-    """Wire public DMF Pipeline, TemporalMemory, Memory, and server hook APIs."""
+    """Wire public DMF Pipeline, TemporalMemory, Memory, and selected hook APIs."""
     vector_config = VectorConfig(
         model_name=config.nlp.model_name,
         vector_dim=config.nlp.vector_dim,
@@ -529,20 +597,7 @@ def build_runtime(config: DMFConfig) -> BenchmarkRuntime:
         window_size=config.capacity.window_size,
     )
     embedding_engine = EmbeddingEngine(vector_config)
-    connection = ChromaConnectionConfig(
-        mode=ChromaConnectionMode.SERVER,
-        host=config.ltm.chroma_host,
-        port=config.ltm.chroma_port,
-        ssl=False,
-        tenant=config.ltm.chroma_tenant,
-        database=config.ltm.chroma_database,
-    )
-    hook = ChromaLTMHook(
-        collection_name=config.ltm.collection_name,
-        distance_threshold=config.ltm.distance_threshold,
-        embed_text=embedding_engine.get_embedding,
-        connection=connection,
-    )
+    hook = build_benchmark_hook(config, embedding_engine, vector_config)
     nlp_engine = NLPEngine(NLPConfig(spacy_model=config.nlp.spacy_model))
     temporal_memory = TemporalMemory.from_dmf_config(
         config,
@@ -611,7 +666,7 @@ def seed_ltm(runtime: BenchmarkRuntime, dataset: BenchmarkDataset) -> dict[str, 
 
     archived_count = runtime.hook.count()
     if archived_count <= 0:
-        raise BenchmarkError("Chroma count is zero after bounded seed pressure")
+        raise BenchmarkError("LTM count is zero after bounded seed pressure")
     if missing_seed_ids:
         raise BenchmarkError(
             "Seed evidence did not reach LTM after bounded pressure: "
@@ -633,13 +688,14 @@ def seed_ltm(runtime: BenchmarkRuntime, dataset: BenchmarkDataset) -> dict[str, 
             unrecoverable.append(case.case_id)
     if unrecoverable:
         raise BenchmarkError(
-            "Archived evidence is not recoverable through Chroma search: "
+            "Archived evidence is not recoverable through LTM search: "
             + ", ".join(unrecoverable)
         )
 
     return {
         "seed_turn_count": len(dataset.seed),
         "filler_turn_count": filler_turns,
+        "count_after_seed": archived_count,
         "chroma_count_after_seed": archived_count,
         "all_seed_turns_archived": True,
         "direct_search_recoverability": recoverability,
@@ -753,16 +809,38 @@ def read_git_commit(repo_root: Path) -> str | None:
         return None
 
 
-def new_report(dataset: BenchmarkDataset | None, model: str, base_url: str) -> dict[str, object]:
+def client_version_for_backend(backend: str) -> str | None:
+    """Return the installed Python client version for the selected backend."""
+    package_name = {
+        BACKEND_CHROMA: "chromadb",
+        BACKEND_QDRANT: "qdrant-client",
+    }.get(backend)
+    if package_name is None:
+        raise BenchmarkError(f"Unsupported benchmark backend: {backend!r}")
+    try:
+        return importlib.metadata.version(package_name)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+def new_report(
+    dataset: BenchmarkDataset | None,
+    model: str,
+    base_url: str,
+    *,
+    backend: str = BACKEND_CHROMA,
+) -> dict[str, object]:
     """Create a sanitized report envelope before infrastructure mutation."""
     return {
         "schema_version": REPORT_SCHEMA_VERSION,
         "status": "started",
+        "backend": backend,
         "benchmark_id": dataset.benchmark_id if dataset else None,
         "dataset_version": dataset.schema_version if dataset else None,
         "started_at": datetime.now(UTC).isoformat(),
         "dmf_commit": read_git_commit(REPO_ROOT),
         "ollama": {"model": model, "base_url": base_url},
+        "ltm": None,
         "chroma": None,
         "scorer": {
             "version": SCORER_VERSION,
@@ -798,6 +876,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=Path,
         default=REPO_ROOT / "integrationtest" / "benchmark_cases.json",
     )
+    parser.add_argument(
+        "--backend",
+        choices=SUPPORTED_BACKENDS,
+        default=BACKEND_CHROMA,
+        help="LTM backend to benchmark (default: chroma)",
+    )
     parser.add_argument("--output", type=Path, default=None)
     return parser.parse_args(argv)
 
@@ -823,19 +907,23 @@ def main(argv: list[str] | None = None) -> int:
             raise BenchmarkError("The versioned benchmark dataset must contain exactly 10 cases")
         base_url = validate_loopback_url(raw_base_url)
         model = validate_model_name(raw_model)
-        chroma_host = validate_loopback_host(
-            os.getenv("CHROMA_HOST", DEFAULT_CHROMA_HOST), field_name="CHROMA_HOST"
-        )
-        chroma_port = parse_port(
-            os.getenv("CHROMA_PORT", str(DEFAULT_CHROMA_PORT)), field_name="CHROMA_PORT"
-        )
-        report = new_report(dataset, model, base_url)
-        report["chroma"] = {
-            "host": chroma_host,
-            "port": chroma_port,
-            "tenant": "default_tenant",
-            "database": "default_database",
-        }
+        chroma_host = DEFAULT_CHROMA_HOST
+        chroma_port = DEFAULT_CHROMA_PORT
+        if args.backend == BACKEND_CHROMA:
+            chroma_host = validate_loopback_host(
+                os.getenv("CHROMA_HOST", DEFAULT_CHROMA_HOST), field_name="CHROMA_HOST"
+            )
+            chroma_port = parse_port(
+                os.getenv("CHROMA_PORT", str(DEFAULT_CHROMA_PORT)), field_name="CHROMA_PORT"
+            )
+        report = new_report(dataset, model, base_url, backend=args.backend)
+        if args.backend == BACKEND_CHROMA:
+            report["chroma"] = {
+                "host": chroma_host,
+                "port": chroma_port,
+                "tenant": "default_tenant",
+                "database": "default_database",
+            }
 
         require_local_embedding_cache(REPO_ROOT)
         with OllamaClient(base_url, model) as ollama:
@@ -845,12 +933,20 @@ def main(argv: list[str] | None = None) -> int:
             config = build_benchmark_config(
                 base_config,
                 collection_name=collection_name,
+                backend=args.backend,
                 chroma_host=chroma_host,
                 chroma_port=chroma_port,
             )
             runtime = build_runtime(config)
-            report["chroma"]["collection"] = collection_name  # type: ignore[index]
+            report["ltm"] = {
+                "backend": args.backend,
+                "client_version": client_version_for_backend(args.backend),
+                "collection": collection_name,
+            }
+            if report["chroma"] is not None:
+                report["chroma"]["collection"] = collection_name  # type: ignore[index]
             report["seed"] = seed_ltm(runtime, dataset)
+            report["ltm"]["count_after_seed"] = report["seed"]["count_after_seed"]  # type: ignore[index]
             results, partial_failure = run_cases(runtime, dataset, ollama)
             report["cases"] = results
             report["aggregate"] = aggregate_results(results)

@@ -11,6 +11,7 @@ construction remains available for custom applications and tests.
 | `FileLTMHook` | No semantic search | Append-only JSONL | Development and audit trails |
 | Chroma embedded | Semantic search | Local Chroma directory | Single-process applications |
 | Chroma server | Semantic search | Managed by the Chroma service | Multiple clients and service deployments |
+| Qdrant Local Mode | Semantic search | Volatile process memory | Isolated local runs and tests |
 | `NullLTMHook` | No | No | Disabled LTM and isolated tests |
 
 Chroma embedded remains the default connection mode. Existing configurations
@@ -20,14 +21,152 @@ that do not define `chroma_mode` continue to use `PersistentClient` and
 ## Canonical imports
 
 ```python
-from dmf.memory.ltm_hooks import ChromaLTMHook, FileLTMHook
+from dmf.memory.ltm_hooks import ChromaLTMHook, FileLTMHook, QdrantLTMHook
 from dmf.memory.ltm_hooks.chroma_client import (
     ChromaConnectionConfig,
     ChromaConnectionMode,
 )
+from dmf.memory.ltm_hooks.qdrant_client import (
+    QdrantConnectionConfig,
+    QdrantConnectionMode,
+)
+from dmf.models import RecallFilter
 ```
 
 The same hook classes remain re-exported from `dmf` and `dmf.memory`.
+
+## Qdrant Local Mode
+
+Install the optional dependency before constructing or configuring the Qdrant
+backend:
+
+```bash
+pip install 'dmf-memory[qdrant]'
+```
+
+Minimal configuration:
+
+```toml
+[ltm]
+enabled = true
+storage_type = "qdrant"
+qdrant_mode = "memory"
+collection_name = "dmf_memory"
+cards_enabled = false
+cards_collection_name = "dmf_cards"
+recall_limit = 5
+distance_threshold = 0.7
+```
+
+`qdrant_mode = "memory"` builds `QdrantClient(":memory:")`. Each client owns a
+separate in-memory store, even when the same collection names are used. Data is
+not written to disk and disappears when the Python process exits. Local
+persistent Qdrant and Qdrant server connections are intentionally outside the
+current release scope.
+
+Direct construction is available for tests and custom applications:
+
+```python
+from dmf.memory import QdrantLTMHook
+from dmf.memory.ltm_hooks.qdrant_client import (
+    QdrantConnectionConfig,
+    QdrantConnectionMode,
+)
+from dmf.utils.config import VectorConfig
+
+hook = QdrantLTMHook(
+    collection_name="dmf_memory",
+    connection=QdrantConnectionConfig(mode=QdrantConnectionMode.MEMORY),
+    vector_config=VectorConfig(vector_dim=768),
+)
+```
+
+An already constructed Qdrant client can be passed with `client=...`. Injected
+clients are used unchanged; their lifecycle, isolation, and persistence remain
+the caller's responsibility.
+
+### Qdrant raw and card collections
+
+Raw LTM records remain canonical. Qdrant stores them in `collection_name`; the
+payload includes `raw_record` as a JSON mapping, plus top-level fields used for
+filtering such as `record_id`, `interaction_id`, `role`, and `created_at`.
+
+When `cards_enabled = true`, projected memory cards are stored in the separate
+`cards_collection_name` collection. The raw and card collection names must be
+distinct. Cards initially use the source record vector and include source raw
+metadata so card recall can apply the same backend-neutral filters. `clear()`
+deletes raw points only; orphaned cards are ignored when their source raw
+record is no longer present.
+
+Qdrant point IDs are deterministic UUIDv5 values derived from the DMF raw
+record ID or card ID. The original DMF identity stays in the payload. This
+makes repeated archive calls idempotent while keeping raw points and card
+points in separate UUID namespaces.
+
+### Qdrant scoring and thresholds
+
+Qdrant uses COSINE distance and returns a similarity score for matching
+points. DMF preserves that score as `RawRecallHit.similarity_score` and reports
+`distance = 1.0 - similarity_score` without clamping.
+
+The existing `distance_threshold` setting remains the public configuration
+surface. For Qdrant queries, DMF converts it to a minimum Qdrant score:
+
+```text
+score_threshold = 1.0 - distance_threshold
+```
+
+With the default `distance_threshold = 0.7`, Qdrant returns records with
+similarity score at least `0.3`.
+
+### Recall filters
+
+`RecallFilter` is shared across Chroma, Qdrant, and temporal-memory recall:
+
+```python
+from dmf.models import RecallFilter
+
+recall_filter = RecallFilter(
+    roles=("user",),
+    interaction_id_min=10,
+    interaction_id_max=50,
+    excluded_record_ids=("raw:obsolete",),
+)
+hits = hook.search_raw(query_vector, k=5, recall_filter=recall_filter)
+```
+
+Supported fields:
+
+| Field | Meaning |
+|---|---|
+| `record_ids` | Include only these raw record IDs. For card recall this matches `source_record_id`. |
+| `excluded_record_ids` | Exclude these raw record IDs. For card recall this excludes matching sources. |
+| `roles` | Match raw `role`; for cards this uses the source raw role. |
+| `interaction_id_min` / `interaction_id_max` | Inclusive source interaction ID range. |
+| `created_at_min` / `created_at_max` | Inclusive source timestamp range. |
+| `card_kinds` | Match projected card kind when searching cards. |
+
+String tuple values are stripped and must be non-empty and unique. Range
+minimums must not exceed their maximums.
+
+In Qdrant Local Mode, payload indexes are not created. Qdrant may warn that
+index creation is a no-op, and metadata filters are evaluated by local
+full-scan. This is expected for the in-memory backend.
+
+### Qdrant errors
+
+If the Qdrant extra is missing, constructing a Qdrant client raises an
+actionable `ModuleNotFoundError` that points to:
+
+```bash
+pip install 'dmf-memory[qdrant]'
+```
+
+When an existing collection has incompatible vector settings, such as the
+wrong dimension, named vectors, or a non-COSINE distance, initialization raises
+`ValueError`. DMF never deletes or recreates an incompatible collection
+automatically. If raw and card collection names are identical, initialization
+also raises `ValueError`.
 
 ## Embedded Chroma
 

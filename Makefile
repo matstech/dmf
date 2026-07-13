@@ -1,4 +1,4 @@
-.PHONY: help lock install build test test-integration benchmark-ltm-local chroma-up chroma-down check compile docs-serve docs-build
+.PHONY: help lock install build test test-integration benchmark-ltm-local benchmark-ltm-qdrant-local chroma-up chroma-down check compile docs-serve docs-build
 
 # Update poetry.lock
 lock:
@@ -33,6 +33,9 @@ test-integration:
 benchmark-ltm-local:
 	poetry run python -m integrationtest.run_ltm_benchmark
 
+benchmark-ltm-qdrant-local:
+	poetry run python -m integrationtest.run_ltm_benchmark --backend qdrant
+
 # Stop containers without removing persistent volumes
 chroma-down:
 	docker compose -f compose.chroma.yml down
@@ -61,6 +64,7 @@ help:
 	@echo "  make chroma-up             Start Chroma 0.6.3 (Docker container)"
 	@echo "  make test-integration      Run integration tests against the local Chroma server"
 	@echo "  make benchmark-ltm-local   Run the local DMF LTM + Ollama benchmark"
+	@echo "  make benchmark-ltm-qdrant-local Run the local DMF LTM + Ollama benchmark with Qdrant"
 	@echo "  make chroma-down           Stop Chroma containers"
 	@echo "  make build                 Build wheel package in dist/"
 	@echo "  make docs-serve            Start development server for documentation"

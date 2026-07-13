@@ -36,9 +36,30 @@ You can install it via pip:
 pip install dmf-memory
 ```
 
+Install the optional Qdrant backend when you want to use local in-memory
+Qdrant LTM:
+
+```bash
+pip install 'dmf-memory[qdrant]'
+```
+
 ## Configuration
 
 DMF is fully configurable via a [TOML](https://toml.io/en/) file. You can adjust NLP models, temporal decay rates, and pruning priorities to suit your agent's needs.
+
+Minimal Qdrant Local Mode configuration:
+
+```toml
+[ltm]
+enabled = true
+storage_type = "qdrant"
+qdrant_mode = "memory"
+```
+
+Qdrant Local Mode uses `QdrantClient(":memory:")`: each client has separate
+state, and all archived data disappears when the process exits. Persistent
+local Qdrant and Qdrant server connections are outside the current release
+scope.
 
 For a comprehensive guide on all configuration parameters, please check our [configuration documentation](configuration.md) in MkDocs.
 
