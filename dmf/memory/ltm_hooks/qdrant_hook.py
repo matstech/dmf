@@ -351,13 +351,21 @@ class QdrantLTMHook:
         )
 
     def clear(self) -> None:
-        """Delete all raw points while preserving the Qdrant collection."""
+        """Delete all raw and card points while preserving the collections."""
         models = _qdrant_models()
-        self._client.delete(
-            collection_name=self._collection_name,
-            points_selector=models.FilterSelector(filter=models.Filter()),
-            wait=True,
-        )
+        selector = models.FilterSelector(filter=models.Filter())
+        with self._lock:
+            self._client.delete(
+                collection_name=self._collection_name,
+                points_selector=selector,
+                wait=True,
+            )
+            if self._cards_enabled:
+                self._client.delete(
+                    collection_name=self._cards_collection_name,
+                    points_selector=selector,
+                    wait=True,
+                )
 
     @property
     def card_store(self) -> JsonlMemoryCardStore | None:

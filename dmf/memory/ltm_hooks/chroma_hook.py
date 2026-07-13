@@ -174,27 +174,47 @@ class ChromaLTMHook:
             )
             if getattr(self, "_cards_collection", None) is not None:
                 cards = self._card_projector.project(entry)
-                source_vector = entry.vector.tolist()
-                for card in cards:
-                    card_text = " ".join(
-                        piece for piece in [card.kind, card.subject, card.predicate, card.object]
-                        if piece
-                    )
-                    card_payload = build_card_payload(card)
-                    card_metadata = {
-                        "card": json.dumps(card_payload["card"], ensure_ascii=False),
-                        "card_id": card.card_id,
-                        "source_record_id": card.provenance.source_record_id,
-                        "kind": card.kind,
-                        "raw_role": raw_record.role,
-                        "raw_interaction_id": raw_record.interaction_id,
-                        "raw_created_at": raw_record.created_at,
-                    }
+                if cards:
+                    source_vector = entry.vector.tolist()
+                    card_ids: list[str] = []
+                    card_embeddings: list[list[float]] = []
+                    card_documents: list[str] = []
+                    card_metadatas: list[dict[str, object]] = []
+                    for card in cards:
+                        card_text = " ".join(
+                            piece
+                            for piece in [
+                                card.kind,
+                                card.subject,
+                                card.predicate,
+                                card.object,
+                            ]
+                            if piece
+                        )
+                        card_payload = build_card_payload(card)
+                        card_ids.append(card.card_id)
+                        card_embeddings.append(source_vector)
+                        card_documents.append(card_text)
+                        card_metadatas.append(
+                            {
+                                "card": json.dumps(
+                                    card_payload["card"],
+                                    ensure_ascii=False,
+                                ),
+                                "card_id": card.card_id,
+                                "source_record_id": card.provenance.source_record_id,
+                                "kind": card.kind,
+                                "raw_role": raw_record.role,
+                                "raw_interaction_id": raw_record.interaction_id,
+                                "raw_created_at": raw_record.created_at,
+                            }
+                        )
+
                     self._cards_collection.upsert(
-                        ids=[card.card_id],
-                        embeddings=[source_vector],
-                        documents=[card_text],
-                        metadatas=[card_metadata],
+                        ids=card_ids,
+                        embeddings=card_embeddings,
+                        documents=card_documents,
+                        metadatas=card_metadatas,
                     )
         if self._card_store is not None:
             self._card_store.archive(entry)
@@ -396,7 +416,7 @@ class ChromaLTMHook:
         return self._collection.count()
 
     def clear(self) -> None:
-        """Delete all indexed records from the raw-record collection.
+        """Delete all indexed records from the raw and card collections.
 
         Returns:
             None.
@@ -404,9 +424,17 @@ class ChromaLTMHook:
         Raises:
             ChromaDB exceptions may surface during deletion.
         """
-        ids = self._collection.get(include=[])["ids"]
-        if ids:
-            self._collection.delete(ids=ids)
+        with self._lock:
+            collections = (
+                self._collection,
+                getattr(self, "_cards_collection", None),
+            )
+            for collection in collections:
+                if collection is None:
+                    continue
+                ids = collection.get(include=[])["ids"]
+                if ids:
+                    collection.delete(ids=ids)
 
     @property
     def card_store(self) -> JsonlMemoryCardStore | None:

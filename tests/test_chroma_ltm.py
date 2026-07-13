@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import threading
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -391,18 +392,25 @@ class TestChromaLTMHook:
 
         assert hook.search_raw([0.1, 0.2], k=1) == []
 
-    def test_clear_deletes_existing_ids(self) -> None:
+    def test_clear_deletes_existing_raw_and_card_ids(self) -> None:
         collection = _FakeCollection()
-        deleted: list[list[str]] = []
+        cards_collection = _FakeCollection()
+        raw_deleted: list[list[str]] = []
+        card_deleted: list[list[str]] = []
         collection.get = lambda include=None: {"ids": ["record:1", "record:2"]}  # type: ignore[assignment]
-        collection.delete = lambda ids: deleted.append(ids)  # type: ignore[assignment]
+        collection.delete = lambda ids: raw_deleted.append(ids)  # type: ignore[assignment]
+        cards_collection.get = lambda include=None: {"ids": ["card:1"]}  # type: ignore[assignment]
+        cards_collection.delete = lambda ids: card_deleted.append(ids)  # type: ignore[assignment]
 
         hook = ChromaLTMHook.__new__(ChromaLTMHook)
         hook._collection = collection
+        hook._cards_collection = cards_collection
+        hook._lock = threading.Lock()
 
         hook.clear()
 
-        assert deleted == [["record:1", "record:2"]]
+        assert raw_deleted == [["record:1", "record:2"]]
+        assert card_deleted == [["card:1"]]
 
     def test_from_dmf_config_passes_card_settings_to_chroma_hook(
         self,
@@ -652,20 +660,34 @@ class TestChromaLTMHookCards:
 
         assert hook.search_cards([0.1, 0.2]) == []
 
-    def test_archive_upserts_card_into_cards_collection(self) -> None:
+    def test_archive_batches_cards_into_one_collection_upsert(self) -> None:
         hook, main_col, cards_col = self._make_hook_with_fake_collections(cards_enabled=True)
         assert cards_col is not None
 
         entry = _make_entry()
+        projected = hook._card_projector.project(entry)
+        assert projected
+        first_card = projected[0]
+
+        class TwoCardProjector:
+            def project(self, entry: MemoryEntry) -> list:  # noqa: ARG002
+                return [
+                    first_card,
+                    replace(first_card, card_id=f"{first_card.card_id}:second"),
+                ]
+
+        hook._card_projector = TwoCardProjector()
         hook.archive(entry)
 
         # The main raw record must always be upserted
         assert len(main_col.upsert_calls) == 1
 
-        # A projectable entry ("Alice booked three tickets to Paris.") should
-        # produce at least one card upserted to the cards collection.
-        assert len(cards_col.upsert_calls) >= 1
+        assert len(cards_col.upsert_calls) == 1
         card_upsert = cards_col.upsert_calls[0]
+        assert len(card_upsert["ids"]) == 2
+        assert len(card_upsert["embeddings"]) == 2
+        assert len(card_upsert["documents"]) == 2
+        assert len(card_upsert["metadatas"]) == 2
         meta = card_upsert["metadatas"][0]
         assert "card" in meta
         assert meta["source_record_id"] == "record:7"
