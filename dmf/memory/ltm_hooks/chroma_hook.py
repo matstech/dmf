@@ -43,6 +43,7 @@ from dmf.memory.ltm_hooks.chroma_client import (
     ChromaConnectionConfig,
     build_chroma_client,
 )
+from dmf.memory.ltm_hooks.chroma_filters import build_chroma_where
 from dmf.memory.ltm_hooks.codecs import (
     build_card_payload,
     build_raw_payload,
@@ -51,6 +52,7 @@ from dmf.memory.ltm_hooks.codecs import (
 from dmf.memory.ltm_hooks.vector_types import cosine_distance_to_similarity
 from dmf.models.memory import MemoryEntry
 from dmf.models.raw_ltm import RawLTMRecord, RawRecallHit
+from dmf.models.recall_filter import RecallFilter
 from dmf.utils.config import VectorConfig
 from dmf.utils.constants import (
     DEFAULT_LTM_CARDS_COLLECTION_NAME,
@@ -184,6 +186,9 @@ class ChromaLTMHook:
                         "card_id": card.card_id,
                         "source_record_id": card.provenance.source_record_id,
                         "kind": card.kind,
+                        "raw_role": raw_record.role,
+                        "raw_interaction_id": raw_record.interaction_id,
+                        "raw_created_at": raw_record.created_at,
                     }
                     self._cards_collection.upsert(
                         ids=[card.card_id],
@@ -198,6 +203,8 @@ class ChromaLTMHook:
         self,
         query_vector: list[float],
         k: int = 5,
+        *,
+        recall_filter: RecallFilter | None = None,
     ) -> list[RawRecallHit]:
         """Retrieve the top-k most relevant raw records by vector similarity.
 
@@ -215,11 +222,15 @@ class ChromaLTMHook:
         if k <= 0:
             return []
 
-        results = self._collection.query(
-            query_embeddings=[query_vector],
-            n_results=k,
-            include=["metadatas", "distances"],
-        )
+        query_kwargs = {
+            "query_embeddings": [query_vector],
+            "n_results": k,
+            "include": ["metadatas", "distances"],
+        }
+        where = build_chroma_where(recall_filter, target="raw")
+        if where is not None:
+            query_kwargs["where"] = where
+        results = self._collection.query(**query_kwargs)
 
         metadatas: list[dict[str, object]] = results["metadatas"][0]
         distances: list[float] = results["distances"][0]
@@ -246,6 +257,8 @@ class ChromaLTMHook:
         self,
         query_vector: list[float],
         k: int = 5,
+        *,
+        recall_filter: RecallFilter | None = None,
     ) -> list[RawRecallHit]:
         """Retrieve the top-k most relevant card hits by vector similarity.
 
@@ -269,11 +282,15 @@ class ChromaLTMHook:
         if k <= 0:
             return []
 
-        results = self._cards_collection.query(
-            query_embeddings=[query_vector],
-            n_results=k,
-            include=["metadatas", "distances"],
-        )
+        query_kwargs = {
+            "query_embeddings": [query_vector],
+            "n_results": k,
+            "include": ["metadatas", "distances"],
+        }
+        where = build_chroma_where(recall_filter, target="card")
+        if where is not None:
+            query_kwargs["where"] = where
+        results = self._cards_collection.query(**query_kwargs)
 
         metadatas: list[dict[str, object]] = results["metadatas"][0]
         distances: list[float] = results["distances"][0]

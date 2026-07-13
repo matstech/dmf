@@ -132,6 +132,7 @@ from dmf.memory.temporal_memory import TemporalMemory
 from dmf.models.ltm_hook import LTMHook, NullLTMHook
 from dmf.models.memory import MemoryEntry
 from dmf.models.raw_ltm import ContextualizedRecallCandidate, RawLTMRecord, RawRecallHit
+from dmf.models.recall_filter import RecallFilter
 from dmf.models.status import SurvivalStatus, classify_survival_status
 from dmf.utils.config import DecayConfig, PruningPriorityConfig, VectorConfig
 
@@ -213,6 +214,48 @@ class RecordingLTMHook:
     def read_all(self) -> list:
         """No-op read_all — RecordingLTMHook is write-only by design."""
         return []
+
+
+def test_get_raw_recall_hits_passes_recall_filter_to_ltm_hook() -> None:
+    captured: dict[str, object] = {}
+
+    class FilteringHook:
+        def archive(self, entry: MemoryEntry) -> None:
+            pass
+
+        def search_raw(
+            self,
+            query_vector: list[float],
+            k: int = 5,
+            *,
+            recall_filter: RecallFilter | None = None,
+        ) -> list[RawRecallHit]:
+            captured["query_vector"] = query_vector
+            captured["k"] = k
+            captured["recall_filter"] = recall_filter
+            return []
+
+        def read_all(self) -> list[RawLTMRecord]:
+            return []
+
+    recall_filter = RecallFilter(record_ids=("record:1",))
+    tm = TemporalMemory(
+        decay_config=_DECAY_CFG,
+        vector_config=_VECTOR_CFG,
+        ltm_hook=FilteringHook(),
+    )
+
+    assert tm.get_raw_recall_hits(
+        np.array([1.0, 0.0], dtype=np.float32),
+        k=3,
+        recall_filter=recall_filter,
+    ) == []
+
+    assert captured == {
+        "query_vector": [1.0, 0.0],
+        "k": 3,
+        "recall_filter": recall_filter,
+    }
 
 
 class _FakeNLPEngine:

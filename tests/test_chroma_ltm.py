@@ -35,6 +35,7 @@ from dmf.memory.ltm_hooks.chroma_client import ChromaConnectionMode
 from dmf.models.analysis import AnalysisReport
 from dmf.models.memory import MemoryEntry
 from dmf.models.raw_ltm import RawLTMRecord, RawRecallHit
+from dmf.models.recall_filter import RecallFilter
 from dmf.models.status import SurvivalStatus
 from dmf.memory.temporal_memory import TemporalMemory
 from dmf.utils.config_loader import DMFConfig, LTMSettings
@@ -49,6 +50,7 @@ class _FakeCollection:
             "metadatas": [[]],
             "distances": [[]],
         }
+        self.get_calls: list[dict] = []
 
     def upsert(self, **kwargs) -> None:
         self.upsert_calls.append(kwargs)
@@ -60,7 +62,8 @@ class _FakeCollection:
         self.query_calls.append(kwargs)
         return self._query_result
 
-    def get(self, include=None):  # noqa: ARG002
+    def get(self, **kwargs):  # noqa: ARG002
+        self.get_calls.append(kwargs)
         return {"ids": []}
 
     def delete(self, ids):  # noqa: ARG002
@@ -283,6 +286,69 @@ class TestChromaLTMHook:
 
         assert len(hits) == 1
         assert collection.query_calls[0]["n_results"] == 1
+
+    def test_search_raw_passes_where_when_filter_is_not_empty(self) -> None:
+        collection = _FakeCollection()
+        hook = ChromaLTMHook.__new__(ChromaLTMHook)
+        hook._collection = collection
+        hook._distance_threshold = 0.7
+
+        assert hook.search_raw(
+            [0.1, 0.2],
+            k=3,
+            recall_filter=RecallFilter(
+                record_ids=("record:7",),
+                roles=("assistant",),
+                interaction_id_min=7,
+            ),
+        ) == []
+
+        assert collection.query_calls[0]["where"] == {
+            "$and": [
+                {"record_id": {"$in": ["record:7"]}},
+                {"raw_role": {"$in": ["assistant"]}},
+                {"raw_interaction_id": {"$gte": 7}},
+            ]
+        }
+
+    def test_search_raw_omits_where_for_empty_filter(self) -> None:
+        collection = _FakeCollection()
+        hook = ChromaLTMHook.__new__(ChromaLTMHook)
+        hook._collection = collection
+        hook._distance_threshold = 0.7
+
+        assert hook.search_raw([0.1, 0.2], k=3, recall_filter=RecallFilter()) == []
+
+        assert "where" not in collection.query_calls[0]
+
+    def test_search_cards_passes_card_where_when_filter_is_not_empty(self) -> None:
+        raw_collection = _FakeCollection()
+        cards_collection = _FakeCollection()
+        cards_collection._query_result = {
+            "documents": [["preference user prefer tea"]],
+            "metadatas": [[{"source_record_id": "record:7", "kind": "preference"}]],
+            "distances": [[0.2]],
+        }
+        hook = ChromaLTMHook.__new__(ChromaLTMHook)
+        hook._collection = raw_collection
+        hook._cards_collection = cards_collection
+        hook._distance_threshold = 0.7
+
+        assert hook.search_cards(
+            [0.1, 0.2],
+            k=3,
+            recall_filter=RecallFilter(
+                record_ids=("record:7",),
+                card_kinds=("preference",),
+            ),
+        ) == []
+
+        assert cards_collection.query_calls[0]["where"] == {
+            "$and": [
+                {"source_record_id": {"$in": ["record:7"]}},
+                {"kind": {"$in": ["preference"]}},
+            ]
+        }
 
     def test_search_raw_skips_records_without_raw_metadata(self) -> None:
         collection = _FakeCollection()

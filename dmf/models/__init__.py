@@ -34,6 +34,7 @@ from dmf.models.memory import (
     RetrievedEvidence,
 )
 from dmf.models.raw_ltm import ContextualizedRecallCandidate, RawLTMRecord, RawRecallHit
+from dmf.models.recall_filter import RecallFilter
 from dmf.models.status import SurvivalStatus, classify_survival_status
 
 __all__ = [
@@ -54,6 +55,7 @@ __all__ = [
     "ContextualizedRecallCandidate",
     "RawLTMRecord",
     "RawRecallHit",
+    "RecallFilter",
     "SurvivalStatus",
     "classify_survival_status",
 ]

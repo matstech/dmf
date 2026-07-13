@@ -36,6 +36,7 @@ from pathlib import Path
 from dmf.memory.card_store import JsonlMemoryCardStore
 from dmf.models.memory import MemoryEntry
 from dmf.models.raw_ltm import RawLTMRecord, RawRecallHit
+from dmf.models.recall_filter import RecallFilter
 from dmf.utils.constants import DEFAULT_LTM_RECALL_LIMIT, DEFAULT_TEXT_ENCODING
 
 
@@ -97,12 +98,19 @@ class FileLTMHook:
         if self._card_store is not None:
             self._card_store.archive(entry)
 
-    def search_raw(self, query_vector: list[float], k: int = DEFAULT_LTM_RECALL_LIMIT) -> list[RawRecallHit]:
+    def search_raw(
+        self,
+        query_vector: list[float],
+        k: int = DEFAULT_LTM_RECALL_LIMIT,
+        *,
+        recall_filter: RecallFilter | None = None,
+    ) -> list[RawRecallHit]:
         """Return no raw search hits for this archival-only backend.
 
         Args:
             query_vector: Ignored query embedding.
             k: Ignored hit limit.
+            recall_filter: Ignored metadata filter.
 
         Returns:
             Empty list.

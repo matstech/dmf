@@ -35,6 +35,7 @@ from typing import Protocol, runtime_checkable
 
 from dmf.models.memory import MemoryEntry
 from dmf.models.raw_ltm import RawLTMRecord, RawRecallHit
+from dmf.models.recall_filter import RecallFilter
 
 
 @runtime_checkable
@@ -69,13 +70,20 @@ class LTMHook(Protocol):
         """
         ...
 
-    def search_raw(self, query_vector: list[float], k: int = 5) -> list[RawRecallHit]:
+    def search_raw(
+        self,
+        query_vector: list[float],
+        k: int = 5,
+        *,
+        recall_filter: RecallFilter | None = None,
+    ) -> list[RawRecallHit]:
         """Retrieve the top-k most relevant raw recall hits from storage.
 
         Args:
             query_vector: Dense embedding used by the backend for similarity
                 search.
             k: Maximum number of hits to return.
+            recall_filter: Optional backend-neutral metadata filter.
 
         Returns:
             Raw recall hits ordered by backend relevance.
@@ -105,12 +113,15 @@ class CardSearchLTMHook(Protocol):
         self,
         query_vector: list[float],
         k: int = 5,
+        *,
+        recall_filter: RecallFilter | None = None,
     ) -> list[RawRecallHit]:
         """Retrieve source raw records for the top-k matching cards.
 
         Args:
             query_vector: Dense embedding used by the backend for card search.
             k: Maximum number of card hits requested.
+            recall_filter: Optional backend-neutral metadata filter.
 
         Returns:
             Raw recall hits pointing to source records for matching cards.
@@ -148,12 +159,19 @@ class NullLTMHook:
         """
         pass
 
-    def search_raw(self, query_vector: list[float], k: int = 5) -> list[RawRecallHit]:
+    def search_raw(
+        self,
+        query_vector: list[float],
+        k: int = 5,
+        *,
+        recall_filter: RecallFilter | None = None,
+    ) -> list[RawRecallHit]:
         """Return no raw hits.
 
         Args:
             query_vector: Ignored query embedding.
             k: Ignored hit limit.
+            recall_filter: Ignored metadata filter.
 
         Returns:
             Empty list.
