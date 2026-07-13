@@ -28,9 +28,16 @@ import json
 import threading
 import uuid
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
-from dmf.memory.ltm_hooks.codecs import build_raw_payload, raw_record_from_payload
+from dmf.memory.card_projection import MemoryCardProjector
+from dmf.memory.card_store import JsonlMemoryCardStore
+from dmf.memory.ltm_hooks.codecs import (
+    build_card_payload,
+    build_raw_payload,
+    raw_record_from_payload,
+)
 from dmf.memory.ltm_hooks.qdrant_client import (
     QdrantConnectionConfig,
     build_qdrant_client,
@@ -44,6 +51,8 @@ from dmf.models.memory import MemoryEntry
 from dmf.models.raw_ltm import RawLTMRecord, RawRecallHit
 from dmf.utils.config import VectorConfig
 from dmf.utils.constants import (
+    DEFAULT_LTM_CARDS_COLLECTION_NAME,
+    DEFAULT_LTM_CARDS_PATH,
     DEFAULT_LTM_COLLECTION_NAME,
     DEFAULT_LTM_DISTANCE_THRESHOLD,
 )
@@ -75,15 +84,27 @@ class QdrantLTMHook:
         distance_threshold: float = DEFAULT_LTM_DISTANCE_THRESHOLD,
         vector_config: VectorConfig | None = None,
         embed_text: Callable[[str], np.ndarray] | None = None,
+        cards_enabled: bool = False,
+        cards_path: Path | str | None = None,
+        card_store: JsonlMemoryCardStore | None = None,
+        cards_collection_name: str = DEFAULT_LTM_CARDS_COLLECTION_NAME,
         connection: QdrantConnectionConfig | None = None,
         client: object | None = None,
     ) -> None:
+        if cards_enabled and cards_collection_name == collection_name:
+            raise ValueError("Qdrant raw and card collections must use distinct names")
+
         self._collection_name = collection_name
+        self._cards_collection_name = cards_collection_name
         self._distance_threshold = distance_threshold
         self._lock = threading.Lock()
         self._vector_config = vector_config or VectorConfig()
         self._embed_text = embed_text
         self._embedding_engine = None
+        self._cards_enabled = cards_enabled
+        self._card_store = card_store
+        if self._card_store is None and cards_enabled:
+            self._card_store = JsonlMemoryCardStore(cards_path or DEFAULT_LTM_CARDS_PATH)
 
         if self._vector_config.vector_dim <= 0:
             raise ValueError(
@@ -94,7 +115,10 @@ class QdrantLTMHook:
         self._client = client if client is not None else build_qdrant_client(
             connection or QdrantConnectionConfig()
         )
-        self._ensure_collection()
+        self._ensure_collection(self._collection_name)
+        if cards_enabled:
+            self._ensure_collection(self._cards_collection_name)
+        self._card_projector = MemoryCardProjector()
 
     def archive(self, entry: MemoryEntry) -> None:
         """Index one evicted raw interaction record into Qdrant."""
@@ -111,6 +135,22 @@ class QdrantLTMHook:
             vector=vector,
             payload=build_raw_payload(raw_record),
         )
+        card_points = []
+        if self._cards_enabled:
+            source_vector = entry.vector.tolist()
+            validate_vector_dimension(
+                source_vector,
+                self._vector_config.vector_dim,
+                field="card source",
+            )
+            for card in self._card_projector.project(entry):
+                card_points.append(
+                    models.PointStruct(
+                        id=_card_point_id(card.card_id),
+                        vector=source_vector,
+                        payload=build_card_payload(card),
+                    )
+                )
 
         with self._lock:
             self._client.upsert(
@@ -118,6 +158,14 @@ class QdrantLTMHook:
                 points=[point],
                 wait=True,
             )
+            if card_points:
+                self._client.upsert(
+                    collection_name=self._cards_collection_name,
+                    points=card_points,
+                    wait=True,
+                )
+        if self._card_store is not None:
+            self._card_store.archive(entry)
 
     def search_raw(
         self,
@@ -164,6 +212,92 @@ class QdrantLTMHook:
             )
         return hits
 
+    def search_cards(
+        self,
+        query_vector: list[float],
+        k: int = 5,
+    ) -> list[RawRecallHit]:
+        """Retrieve source raw records for the top-k matching projected cards."""
+        if not self._cards_enabled:
+            return []
+        if k <= 0:
+            return []
+
+        validate_vector_dimension(
+            query_vector,
+            self._vector_config.vector_dim,
+            field="query",
+        )
+        response = self._client.query_points(
+            collection_name=self._cards_collection_name,
+            query=query_vector,
+            limit=k,
+            with_payload=True,
+            with_vectors=False,
+            score_threshold=distance_threshold_to_min_similarity(
+                self._distance_threshold
+            ),
+        )
+
+        valid_candidates: list[tuple[int, str, float]] = []
+        for idx, point in enumerate(response.points):
+            payload = point.payload
+            if not isinstance(payload, Mapping):
+                continue
+            source_record_id = payload.get("source_record_id")
+            if not isinstance(source_record_id, str) or not source_record_id:
+                continue
+            valid_candidates.append((idx, source_record_id, float(point.score)))
+
+        if not valid_candidates:
+            return []
+
+        source_ids = list(
+            dict.fromkeys(source_id for _, source_id, _ in valid_candidates)
+        )
+        raw_points = self._client.retrieve(
+            collection_name=self._collection_name,
+            ids=[_raw_point_id(source_id) for source_id in source_ids],
+            with_payload=True,
+            with_vectors=False,
+        )
+        records_by_id: dict[str, RawLTMRecord] = {}
+        for point in raw_points:
+            payload = point.payload
+            if not isinstance(payload, Mapping):
+                continue
+            try:
+                record = raw_record_from_payload(payload)
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                continue
+            records_by_id[record.record_id] = record
+
+        hits: list[RawRecallHit] = []
+        for idx, source_id, score in valid_candidates:
+            record = records_by_id.get(source_id)
+            if record is None:
+                continue
+            hits.append(
+                RawRecallHit(
+                    record=record,
+                    similarity_score=score,
+                    distance=cosine_similarity_to_distance(score),
+                    rank_hint=idx,
+                )
+            )
+        return hits
+
+    def count_cards(self) -> int:
+        """Return the number of indexed card records, or zero when disabled."""
+        if not self._cards_enabled:
+            return 0
+        return int(
+            self._client.count(
+                collection_name=self._cards_collection_name,
+                exact=True,
+            ).count
+        )
+
     def read_all(self) -> list[RawLTMRecord]:
         """Return all archived raw records ordered by source identity."""
         records: list[RawLTMRecord] = []
@@ -209,21 +343,26 @@ class QdrantLTMHook:
             wait=True,
         )
 
-    def _ensure_collection(self) -> None:
+    @property
+    def card_store(self) -> JsonlMemoryCardStore | None:
+        """Auxiliary JSONL card audit store, when configured."""
+        return self._card_store
+
+    def _ensure_collection(self, collection_name: str) -> None:
         models = _qdrant_models()
-        if not self._client.collection_exists(self._collection_name):
+        if not self._client.collection_exists(collection_name):
             self._client.create_collection(
-                collection_name=self._collection_name,
+                collection_name=collection_name,
                 vectors_config=models.VectorParams(
                     size=self._vector_config.vector_dim,
                     distance=models.Distance.COSINE,
                 ),
             )
-        self._validate_collection()
+        self._validate_collection(collection_name)
 
-    def _validate_collection(self) -> None:
+    def _validate_collection(self, collection_name: str) -> None:
         models = _qdrant_models()
-        collection = self._client.get_collection(self._collection_name)
+        collection = self._client.get_collection(collection_name)
         vectors = collection.config.params.vectors
         expected = (
             f"single vector size={self._vector_config.vector_dim}, "
@@ -232,7 +371,7 @@ class QdrantLTMHook:
 
         if isinstance(vectors, Mapping):
             raise ValueError(
-                f"Qdrant collection {self._collection_name!r} is incompatible: "
+                f"Qdrant collection {collection_name!r} is incompatible: "
                 f"expected {expected}, observed named vectors {vectors!r}"
             )
 
@@ -244,7 +383,7 @@ class QdrantLTMHook:
         ):
             observed = f"size={observed_size}, distance={observed_distance}"
             raise ValueError(
-                f"Qdrant collection {self._collection_name!r} is incompatible: "
+                f"Qdrant collection {collection_name!r} is incompatible: "
                 f"expected {expected}, observed {observed}"
             )
 

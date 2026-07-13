@@ -105,6 +105,9 @@ def build_ltm_hook(settings: LTMSettings, vector_config: VectorConfig) -> LTMHoo
             collection_name=settings.collection_name,
             distance_threshold=settings.distance_threshold,
             vector_config=vector_config,
+            cards_enabled=settings.cards_enabled,
+            cards_path=settings.cards_path,
+            cards_collection_name=settings.cards_collection_name,
             connection=connection,
         )
 
