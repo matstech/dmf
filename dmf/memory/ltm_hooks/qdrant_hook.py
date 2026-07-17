@@ -277,6 +277,11 @@ class QdrantLTMHook:
             with_payload=True,
             with_vectors=False,
         )
+
+        # Retrieval is deduplicated by raw source, but the result below must
+        # preserve card rank and duplicate card hits. Qdrant may also omit
+        # missing points, so joining by record_id is safer than relying on
+        # response order or zipping raw points with candidates.
         records_by_id: dict[str, RawLTMRecord] = {}
         for point in raw_points:
             payload = point.payload
