@@ -12,8 +12,7 @@ retrieval, reranking, and prompt-ready context rendering.
 
 The recommended entry point is the project configuration. It selects the LTM
 backend and keeps application wiring independent from whether Chroma runs
-embedded, as a separate server, or whether Qdrant runs in local in-memory
-mode.
+embedded or as a server, and whether Qdrant runs in memory or as a server.
 
 ```python
 from dmf.analysis import EmbeddingEngine, ScoringEngine
@@ -50,7 +49,8 @@ print(context)
 `chroma_mode = "server"` changes the connection strategy without changing the
 application code above. Selecting `storage_type = "qdrant"` with
 `qdrant_mode = "memory"` uses volatile Qdrant Local Mode and also keeps the
-application code unchanged.
+application code unchanged. Switching to `qdrant_mode = "server"` connects the
+same hook to a separately managed Qdrant service.
 
 ## Long-term memory backends
 
@@ -60,16 +60,17 @@ DMF includes:
 - `ChromaLTMHook` in embedded mode, with local persistent storage;
 - `ChromaLTMHook` in server mode, using a separately managed Chroma service;
 - `QdrantLTMHook` in Local Mode, using volatile in-memory Qdrant;
+- `QdrantLTMHook` in server mode, using service-managed persistence;
 - `NullLTMHook`, for disabled persistence and isolated tests.
 
-See [LTM Backends](ltm_backends.md) for deployment modes, Qdrant Local Mode
-limits, authentication, retry behavior, migration from legacy imports, Docker
-integration, and the local Ollama benchmark.
+See [LTM Backends](ltm_backends.md) for deployment modes, authentication,
+retry behavior, migration from legacy imports, Docker integration, and the
+local Ollama benchmark.
 
 ## Next steps
 
 - [Configuration reference](configuration.md)
-- [LTM backends and Chroma server deployment](ltm_backends.md)
+- [LTM backends and server deployment](ltm_backends.md)
 - [Context rendering](prompt_structure.md)
 - [Public API](api/public.md)
 - [Internal API](api/internals.md)

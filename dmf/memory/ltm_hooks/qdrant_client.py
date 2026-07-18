@@ -24,8 +24,17 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
+
+from dmf.utils.constants import (
+    DEFAULT_LTM_QDRANT_HOST,
+    DEFAULT_LTM_QDRANT_PORT,
+    DEFAULT_LTM_QDRANT_SSL,
+    DEFAULT_LTM_QDRANT_TIMEOUT,
+    LTM_QDRANT_MODE_MEMORY,
+    LTM_QDRANT_MODE_SERVER,
+)
 
 _QDRANT_EXTRA_INSTALL_MESSAGE = (
     "Install the Qdrant backend with: pip install 'dmf-memory[qdrant]'"
@@ -35,7 +44,8 @@ _QDRANT_EXTRA_INSTALL_MESSAGE = (
 class QdrantConnectionMode(str, Enum):
     """Supported Qdrant deployment modes."""
 
-    MEMORY = "memory"
+    MEMORY = LTM_QDRANT_MODE_MEMORY
+    SERVER = LTM_QDRANT_MODE_SERVER
 
 
 @dataclass(frozen=True)
@@ -43,21 +53,52 @@ class QdrantConnectionConfig:
     """Connection parameters used by :func:`build_qdrant_client`."""
 
     mode: QdrantConnectionMode = QdrantConnectionMode.MEMORY
+    host: str = DEFAULT_LTM_QDRANT_HOST
+    port: int = DEFAULT_LTM_QDRANT_PORT
+    ssl: bool = DEFAULT_LTM_QDRANT_SSL
+    api_key: str | None = field(default=None, repr=False)
+    timeout: int = DEFAULT_LTM_QDRANT_TIMEOUT
+
+    def __post_init__(self) -> None:
+        """Validate parameters used by a direct server connection."""
+        if self.mode != QdrantConnectionMode.SERVER:
+            return
+        if not self.host.strip():
+            raise ValueError("Qdrant server host must not be empty")
+        if not 1 <= self.port <= 65535:
+            raise ValueError("Qdrant server port must be between 1 and 65535")
+        if self.timeout <= 0:
+            raise ValueError("Qdrant server timeout must be greater than zero")
 
 
 def build_qdrant_client(connection: QdrantConnectionConfig) -> object:
     """Build a Qdrant client for the requested deployment mode."""
     if connection.mode == QdrantConnectionMode.MEMORY:
-        try:
-            from qdrant_client import QdrantClient  # noqa: PLC0415
-        except ModuleNotFoundError as exc:
-            if exc.name == "qdrant_client":
-                raise ModuleNotFoundError(_QDRANT_EXTRA_INSTALL_MESSAGE) from exc
-            raise
-
+        QdrantClient = _qdrant_client_class()
         return QdrantClient(":memory:")
 
+    if connection.mode == QdrantConnectionMode.SERVER:
+        QdrantClient = _qdrant_client_class()
+        return QdrantClient(
+            host=connection.host,
+            port=connection.port,
+            https=connection.ssl,
+            api_key=connection.api_key,
+            timeout=connection.timeout,
+        )
+
     raise ValueError(f"Unsupported Qdrant connection mode: {connection.mode!r}")
+
+
+def _qdrant_client_class() -> type:
+    """Load the optional client dependency with an actionable failure."""
+    try:
+        from qdrant_client import QdrantClient
+    except ModuleNotFoundError as exc:
+        if exc.name == "qdrant_client":
+            raise ModuleNotFoundError(_QDRANT_EXTRA_INSTALL_MESSAGE) from exc
+        raise
+    return QdrantClient
 
 
 __all__ = [

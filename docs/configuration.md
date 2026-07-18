@@ -186,11 +186,16 @@ Configures the **Long-Term Memory** persistence backend. DMF supports multiple b
 
 | Parameter               | Type     | Default                    | Description                                                                                                                                                                          |
 | ----------------------- | -------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `storage_type`          | `string` | `"chroma"`                 | Backend type. `"chroma"` for ChromaDB vector store with active recall, `"qdrant"` for volatile in-memory Qdrant Local Mode, `"file"` for a write-only JSONL audit trail via `FileLTMHook`, `"null"` for silent discard (useful in tests). |
+| `storage_type`          | `string` | `"chroma"`                 | Backend type. `"chroma"` or `"qdrant"` for vector recall, `"file"` for a write-only JSONL audit trail, and `"null"` for silent discard. |
 | `storage_path`          | `string` | `"data/ltm_archive.jsonl"` | Path to the JSONL archive file. Used when `storage_type = "file"`. Parent directories are created automatically.                                                                     |
 | `chroma_path`           | `string` | `"data/ltm_chroma"`        | Persistence directory used only in `embedded` mode. It is not created by the server client.                                                                                          |
 | `chroma_mode`           | `string` | `"embedded"`               | Chroma deployment: local `embedded` persistence or remote `server`.                                                                                                                  |
-| `qdrant_mode`           | `string` | `"memory"`                 | Qdrant deployment mode. Only `"memory"` is supported and maps to `QdrantClient(":memory:")`; each client has isolated volatile state.                                                |
+| `qdrant_mode`           | `string` | `"memory"`                 | Qdrant deployment: isolated volatile `memory` or remote `server`.                                                                                                                     |
+| `qdrant_host`           | `string` | `"localhost"`              | Qdrant server hostname. Required and non-empty in active server mode.                                                                                                                 |
+| `qdrant_port`           | `int`    | `6333`                      | Qdrant HTTP port in the range 1-65535.                                                                                                                                                |
+| `qdrant_ssl`            | `bool`   | `false`                     | Use HTTPS for the Qdrant server connection.                                                                                                                                           |
+| `qdrant_api_key_env`    | `string` | `""`                       | Name of the environment variable containing an optional Qdrant API key.                                                                                                              |
+| `qdrant_timeout`        | `int`    | `5`                         | Positive Qdrant request timeout in seconds.                                                                                                                                           |
 | `chroma_host`           | `string` | `"localhost"`              | Server hostname. Required and non-empty in active server mode.                                                                                                                       |
 | `chroma_port`           | `int`    | `8000`                     | Server port in the range 1–65535.                                                                                                                                                    |
 | `chroma_ssl`            | `bool`   | `false`                    | Use HTTPS for the server connection.                                                                                                                                                 |
@@ -221,8 +226,23 @@ pip install 'dmf-memory[qdrant]'
 ```
 
 It is volatile: every `QdrantClient(":memory:")` instance has separate state,
-and all data disappears when the process exits. Local persistent Qdrant and
-Qdrant server mode are not implemented in this release.
+and all data disappears when the process exits.
+
+Qdrant server configuration:
+
+```toml
+[ltm]
+storage_type = "qdrant"
+qdrant_mode = "server"
+qdrant_host = "localhost"
+qdrant_port = 6333
+qdrant_ssl = false
+qdrant_api_key_env = ""
+qdrant_timeout = 5
+```
+
+When `qdrant_api_key_env` is set, DMF reads the API key from that environment
+variable only while the Qdrant server backend is active.
 
 For deployment examples, direct construction, authentication behavior, retry
 semantics, Qdrant Local Mode details, version compatibility, migration

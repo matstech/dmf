@@ -51,6 +51,54 @@ def test_memory_factory_builds_in_memory_client(monkeypatch: pytest.MonkeyPatch)
     assert calls == [(":memory:",)]
 
 
+def test_server_factory_builds_remote_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+    expected_client = object()
+
+    def fake_qdrant_client(**kwargs: Any) -> object:
+        captured.update(kwargs)
+        return expected_client
+
+    monkeypatch.setattr(qdrant_client, "QdrantClient", fake_qdrant_client)
+    connection = QdrantConnectionConfig(
+        mode=QdrantConnectionMode.SERVER,
+        host="qdrant.internal",
+        port=7443,
+        ssl=True,
+        api_key="top-secret-key",
+        timeout=11,
+    )
+
+    result = build_qdrant_client(connection)
+
+    assert result is expected_client
+    assert captured == {
+        "host": "qdrant.internal",
+        "port": 7443,
+        "https": True,
+        "api_key": "top-secret-key",
+        "timeout": 11,
+    }
+    assert "top-secret-key" not in repr(connection)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"host": "   "}, "host must not be empty"),
+        ({"port": 0}, "port must be between"),
+        ({"port": 65536}, "port must be between"),
+        ({"timeout": 0}, "timeout must be greater than zero"),
+    ],
+)
+def test_server_connection_rejects_invalid_parameters(
+    kwargs: dict[str, Any],
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        QdrantConnectionConfig(mode=QdrantConnectionMode.SERVER, **kwargs)
+
+
 def test_unknown_mode_fails_without_constructing_client(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -59,7 +107,7 @@ def test_unknown_mode_fails_without_constructing_client(
         "QdrantClient",
         lambda *args: pytest.fail(f"unexpected QdrantClient: {args}"),
     )
-    connection = QdrantConnectionConfig(mode="server")  # type: ignore[arg-type]
+    connection = QdrantConnectionConfig(mode="cluster")  # type: ignore[arg-type]
 
     with pytest.raises(ValueError, match="Unsupported Qdrant connection mode"):
         build_qdrant_client(connection)
@@ -82,6 +130,27 @@ def test_missing_qdrant_extra_has_actionable_error(
 
     with pytest.raises(ModuleNotFoundError, match=r"dmf-memory\[qdrant\]"):
         build_qdrant_client(QdrantConnectionConfig(mode=QdrantConnectionMode.MEMORY))
+
+
+def test_missing_qdrant_extra_is_actionable_in_server_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_import = builtins.__import__
+
+    def fake_import(name: str, *args: Any, **kwargs: Any) -> object:
+        if name == "qdrant_client":
+            raise ModuleNotFoundError(
+                "No module named 'qdrant_client'",
+                name="qdrant_client",
+            )
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    with pytest.raises(ModuleNotFoundError, match=r"dmf-memory\[qdrant\]"):
+        build_qdrant_client(
+            QdrantConnectionConfig(mode=QdrantConnectionMode.SERVER)
+        )
 
 
 def test_unrelated_import_error_is_not_rewritten(

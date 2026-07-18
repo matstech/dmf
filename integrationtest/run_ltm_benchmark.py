@@ -49,9 +49,14 @@ DEFAULT_MODEL = "gemma4:e4b"
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 DEFAULT_CHROMA_HOST = "localhost"
 DEFAULT_CHROMA_PORT = 8000
+DEFAULT_QDRANT_HOST = "localhost"
+DEFAULT_QDRANT_PORT = 6333
 BACKEND_CHROMA = "chroma"
 BACKEND_QDRANT = "qdrant"
 SUPPORTED_BACKENDS = (BACKEND_CHROMA, BACKEND_QDRANT)
+QDRANT_MODE_MEMORY = "memory"
+QDRANT_MODE_SERVER = "server"
+SUPPORTED_QDRANT_MODES = (QDRANT_MODE_MEMORY, QDRANT_MODE_SERVER)
 MAX_CASES = 10
 MAX_RESPONSE_CHARS = 4_096
 MAX_RESPONSE_BYTES = 1_000_000
@@ -491,6 +496,9 @@ def build_benchmark_config(
     backend: str = BACKEND_CHROMA,
     chroma_host: str = DEFAULT_CHROMA_HOST,
     chroma_port: int = DEFAULT_CHROMA_PORT,
+    qdrant_mode: str = QDRANT_MODE_MEMORY,
+    qdrant_host: str = DEFAULT_QDRANT_HOST,
+    qdrant_port: int = DEFAULT_QDRANT_PORT,
 ) -> DMFConfig:
     """Derive a controlled benchmark configuration without mutating root settings."""
     if backend not in SUPPORTED_BACKENDS:
@@ -514,7 +522,19 @@ def build_benchmark_config(
             }
         )
     else:
-        ltm_kwargs["qdrant_mode"] = "memory"
+        if qdrant_mode not in SUPPORTED_QDRANT_MODES:
+            raise BenchmarkError(
+                f"Unsupported Qdrant benchmark mode: {qdrant_mode!r}"
+            )
+        ltm_kwargs.update(
+            {
+                "qdrant_mode": qdrant_mode,
+                "qdrant_host": qdrant_host,
+                "qdrant_port": qdrant_port,
+                "qdrant_ssl": False,
+                "qdrant_api_key_env": "",
+            }
+        )
 
     return dataclasses.replace(
         base,
@@ -578,7 +598,13 @@ def build_benchmark_hook(
             connection=connection,
         )
     if config.ltm.storage_type == BACKEND_QDRANT:
-        connection = QdrantConnectionConfig(mode=QdrantConnectionMode.MEMORY)
+        connection = QdrantConnectionConfig(
+            mode=QdrantConnectionMode(config.ltm.qdrant_mode),
+            host=config.ltm.qdrant_host,
+            port=config.ltm.qdrant_port,
+            ssl=config.ltm.qdrant_ssl,
+            timeout=config.ltm.qdrant_timeout,
+        )
         return QdrantLTMHook(
             collection_name=config.ltm.collection_name,
             distance_threshold=config.ltm.distance_threshold,
@@ -1121,6 +1147,7 @@ def new_report(
         "ollama": {"model": model, "base_url": base_url},
         "ltm": None,
         "chroma": None,
+        "qdrant": None,
         "scorer": {
             "version": SCORER_VERSION,
             "formula": "max(0, required_group_coverage - 0.5 * promoted_obsolete_ratio)",
@@ -1161,6 +1188,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=BACKEND_CHROMA,
         help="LTM backend to benchmark (default: chroma)",
     )
+    parser.add_argument(
+        "--qdrant-mode",
+        choices=SUPPORTED_QDRANT_MODES,
+        default=QDRANT_MODE_MEMORY,
+        help="Qdrant deployment mode when --backend=qdrant (default: memory)",
+    )
     parser.add_argument("--output", type=Path, default=None)
     return parser.parse_args(argv)
 
@@ -1188,12 +1221,23 @@ def main(argv: list[str] | None = None) -> int:
         model = validate_model_name(raw_model)
         chroma_host = DEFAULT_CHROMA_HOST
         chroma_port = DEFAULT_CHROMA_PORT
+        qdrant_host = DEFAULT_QDRANT_HOST
+        qdrant_port = DEFAULT_QDRANT_PORT
         if args.backend == BACKEND_CHROMA:
             chroma_host = validate_loopback_host(
                 os.getenv("CHROMA_HOST", DEFAULT_CHROMA_HOST), field_name="CHROMA_HOST"
             )
             chroma_port = parse_port(
                 os.getenv("CHROMA_PORT", str(DEFAULT_CHROMA_PORT)), field_name="CHROMA_PORT"
+            )
+        if args.backend == BACKEND_QDRANT and args.qdrant_mode == QDRANT_MODE_SERVER:
+            qdrant_host = validate_loopback_host(
+                os.getenv("QDRANT_HOST", DEFAULT_QDRANT_HOST),
+                field_name="QDRANT_HOST",
+            )
+            qdrant_port = parse_port(
+                os.getenv("QDRANT_PORT", str(DEFAULT_QDRANT_PORT)),
+                field_name="QDRANT_PORT",
             )
         report = new_report(dataset, model, base_url, backend=args.backend)
         if args.backend == BACKEND_CHROMA:
@@ -1203,6 +1247,12 @@ def main(argv: list[str] | None = None) -> int:
                 "tenant": "default_tenant",
                 "database": "default_database",
             }
+        if args.backend == BACKEND_QDRANT:
+            report["qdrant"] = {"mode": args.qdrant_mode}
+            if args.qdrant_mode == QDRANT_MODE_SERVER:
+                report["qdrant"].update(  # type: ignore[union-attr]
+                    {"host": qdrant_host, "port": qdrant_port}
+                )
 
         require_local_embedding_cache(REPO_ROOT)
         with OllamaClient(base_url, model) as ollama:
@@ -1215,12 +1265,20 @@ def main(argv: list[str] | None = None) -> int:
                 backend=args.backend,
                 chroma_host=chroma_host,
                 chroma_port=chroma_port,
+                qdrant_mode=args.qdrant_mode,
+                qdrant_host=qdrant_host,
+                qdrant_port=qdrant_port,
             )
             runtime = build_runtime(config)
             report["ltm"] = {
                 "backend": args.backend,
                 "client_version": client_version_for_backend(args.backend),
                 "collection": collection_name,
+                "mode": (
+                    args.qdrant_mode
+                    if args.backend == BACKEND_QDRANT
+                    else "server"
+                ),
             }
             if report["chroma"] is not None:
                 report["chroma"]["collection"] = collection_name  # type: ignore[index]

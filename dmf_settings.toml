@@ -208,13 +208,13 @@ rho_replacement = 0.08
 superseded_past_penalty = 0.35
 
 # ---------------------------------------------------------------------------
-# Long-Term Memory  (FileLTMHook / ChromaLTMHook / Qdrant memory mode)
+# Long-Term Memory  (FileLTMHook / ChromaLTMHook / QdrantLTMHook)
 # ---------------------------------------------------------------------------
 [ltm]
 # Backend type.
 #   "file"   → FileLTMHook  (JSONL audit trail, write-only).
 #   "chroma" → ChromaLTMHook (vector store + active recall).
-#   "qdrant" → Qdrant local in-memory vector store (volatile; not persisted).
+#   "qdrant" → Qdrant vector store (volatile memory mode or server).
 #   "null"   → NullLTMHook  (silent discard, useful in tests).
 storage_type = "chroma"
 
@@ -235,10 +235,14 @@ chroma_database = "default_database"
 # Optional name of an environment variable containing the server Bearer token.
 chroma_auth_token_env = ""
 
-# Qdrant connection. Only volatile in-memory local mode is supported for now.
-# Process exit discards all Qdrant data; persistent paths, server URLs, ports,
-# and API keys are intentionally out of scope.
+# Qdrant connection. "memory" is volatile; "server" uses the HTTP API.
 qdrant_mode = "memory"
+qdrant_host = "localhost"
+qdrant_port = 6333
+qdrant_ssl = false
+# Optional name of an environment variable containing the Qdrant API key.
+qdrant_api_key_env = ""
+qdrant_timeout = 5
 
 # Raw-record vector collection name. Change to start a fresh memory namespace.
 collection_name = "dmf_memory"

@@ -205,6 +205,120 @@ def test_qdrant_ltm_builds_hook_with_connection_and_vector_config(
     assert captured["connection"].mode is QdrantConnectionMode.MEMORY
 
 
+def test_qdrant_server_builds_connection_with_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+    env_reads: list[str] = []
+
+    class FakeQdrantLTMHook:
+        def __init__(self, **kwargs: Any) -> None:
+            captured.update(kwargs)
+
+    monkeypatch.setattr(ltm_hooks, "QdrantLTMHook", FakeQdrantLTMHook)
+    monkeypatch.setattr(
+        temporal_memory.os,
+        "getenv",
+        lambda name: env_reads.append(name) or "top-secret-key",
+    )
+    settings = LTMSettings(
+        storage_type="qdrant",
+        qdrant_mode="server",
+        qdrant_host="qdrant.internal",
+        qdrant_port=7443,
+        qdrant_ssl=True,
+        qdrant_api_key_env="DMF_QDRANT_API_KEY",
+        qdrant_timeout=9,
+    )
+
+    build_ltm_hook(settings, VectorConfig())
+
+    connection = captured["connection"]
+    assert connection.mode is QdrantConnectionMode.SERVER
+    assert connection.host == "qdrant.internal"
+    assert connection.port == 7443
+    assert connection.ssl is True
+    assert connection.api_key == "top-secret-key"
+    assert connection.timeout == 9
+    assert "top-secret-key" not in repr(connection)
+    assert env_reads == ["DMF_QDRANT_API_KEY"]
+
+
+def test_qdrant_server_missing_api_key_raises_without_secret_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(temporal_memory.os, "getenv", lambda name: "   ")  # noqa: ARG005
+    settings = LTMSettings(
+        storage_type="qdrant",
+        qdrant_mode="server",
+        qdrant_api_key_env="DMF_QDRANT_API_KEY",
+    )
+
+    with pytest.raises(ValueError, match="DMF_QDRANT_API_KEY") as exc_info:
+        build_ltm_hook(settings, VectorConfig())
+
+    assert "top-secret" not in str(exc_info.value)
+
+
+def test_qdrant_memory_does_not_read_api_key_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeQdrantLTMHook:
+        def __init__(self, **kwargs: Any) -> None:
+            captured.update(kwargs)
+
+    monkeypatch.setattr(ltm_hooks, "QdrantLTMHook", FakeQdrantLTMHook)
+    monkeypatch.setattr(
+        temporal_memory.os,
+        "getenv",
+        lambda name: pytest.fail(f"unexpected environment read: {name}"),
+    )
+
+    build_ltm_hook(
+        LTMSettings(
+            storage_type="qdrant",
+            qdrant_mode="memory",
+            qdrant_api_key_env="DMF_QDRANT_API_KEY",
+        ),
+        VectorConfig(),
+    )
+
+    assert captured["connection"].api_key is None
+
+
+@pytest.mark.parametrize(
+    ("settings", "expected_type"),
+    [
+        (LTMSettings(enabled=False, storage_type="qdrant"), NullLTMHook),
+        (LTMSettings(storage_type="file"), FileLTMHook),
+        (LTMSettings(storage_type="null"), NullLTMHook),
+    ],
+)
+def test_non_active_qdrant_server_does_not_read_api_key_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    settings: LTMSettings,
+    expected_type: type,
+) -> None:
+    monkeypatch.setattr(
+        temporal_memory.os,
+        "getenv",
+        lambda name: pytest.fail(f"unexpected environment read: {name}"),
+    )
+    settings = LTMSettings(
+        **{
+            **settings.__dict__,
+            "qdrant_mode": "server",
+            "qdrant_api_key_env": "DMF_QDRANT_API_KEY",
+        }
+    )
+
+    hook = build_ltm_hook(settings, VectorConfig())
+
+    assert isinstance(hook, expected_type)
+
+
 @pytest.mark.parametrize(
     ("settings", "expected_type"),
     [

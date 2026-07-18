@@ -78,7 +78,7 @@ def _card_point_id(card_id: str) -> str:
 # Point IDs use a stable UUIDv5 namespace to keep archive upserts idempotent
 # and to keep raw records distinct from projected cards.
 class QdrantLTMHook:
-    """In-memory Qdrant vector LTM store with raw-record retrieval."""
+    """Qdrant vector LTM store with raw-record retrieval."""
 
     def __init__(
         self,
@@ -380,13 +380,18 @@ class QdrantLTMHook:
     def _ensure_collection(self, collection_name: str) -> None:
         models = _qdrant_models()
         if not self._client.collection_exists(collection_name):
-            self._client.create_collection(
-                collection_name=collection_name,
-                vectors_config=models.VectorParams(
-                    size=self._vector_config.vector_dim,
-                    distance=models.Distance.COSINE,
-                ),
-            )
+            try:
+                self._client.create_collection(
+                    collection_name=collection_name,
+                    vectors_config=models.VectorParams(
+                        size=self._vector_config.vector_dim,
+                        distance=models.Distance.COSINE,
+                    ),
+                )
+            except Exception:
+                # Another server client may have created it after our check.
+                if not self._client.collection_exists(collection_name):
+                    raise
         self._validate_collection(collection_name)
 
     def _validate_collection(self, collection_name: str) -> None:
