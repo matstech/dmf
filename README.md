@@ -36,8 +36,7 @@ You can install it via pip:
 pip install dmf-memory
 ```
 
-Install the optional Qdrant backend when you want to use local in-memory
-Qdrant LTM:
+Install the optional Qdrant backend for in-memory or server-backed Qdrant LTM:
 
 ```bash
 pip install 'dmf-memory[qdrant]'
@@ -56,10 +55,9 @@ storage_type = "qdrant"
 qdrant_mode = "memory"
 ```
 
-Qdrant Local Mode uses `QdrantClient(":memory:")`: each client has separate
-state, and all archived data disappears when the process exits. Persistent
-local Qdrant and Qdrant server connections are outside the current release
-scope.
+Qdrant Local Mode uses `QdrantClient(":memory:")` and remains the default.
+Set `qdrant_mode = "server"` with `qdrant_host` and `qdrant_port` to use a
+separately managed persistent service.
 
 For a comprehensive guide on all configuration parameters, please check our [configuration documentation](configuration.md) in MkDocs.
 
@@ -71,8 +69,11 @@ The project provides a `Makefile` to simplify common development tasks:
 - `make test`: Run the unit suite without external services.
 - `make chroma-up`: Start the version-pinned local Chroma server and wait for readiness.
 - `make test-integration`: Run the opt-in Chroma server roundtrip test.
+- `make qdrant-up`: Start the version-pinned local Qdrant server.
+- `make test-integration-qdrant`: Run the Qdrant multi-client roundtrip test.
 - `make benchmark-ltm-local`: Run the separate 10-case DMF LTM benchmark against local Ollama.
 - `make chroma-down`: Stop the local Chroma server while preserving its data volume.
+- `make qdrant-down`: Stop the local Qdrant server while preserving its data volume.
 - `make check`: Verify package metadata.
 - `make build`: Build the distributable wheel.
 - `make docs-serve`: Serve the documentation locally.

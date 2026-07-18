@@ -194,12 +194,21 @@ def test_parse_args_defaults_to_chroma_backend() -> None:
     args = parse_args([])
 
     assert args.backend == BACKEND_CHROMA
+    assert args.qdrant_mode == "memory"
 
 
 def test_parse_args_accepts_qdrant_backend() -> None:
     args = parse_args(["--backend", "qdrant"])
 
     assert args.backend == BACKEND_QDRANT
+    assert args.qdrant_mode == "memory"
+
+
+def test_parse_args_accepts_qdrant_server_mode() -> None:
+    args = parse_args(["--backend", "qdrant", "--qdrant-mode", "server"])
+
+    assert args.backend == BACKEND_QDRANT
+    assert args.qdrant_mode == "server"
 
 
 def test_parse_args_rejects_unknown_backend() -> None:
@@ -222,6 +231,24 @@ def test_benchmark_config_for_qdrant_uses_memory_without_chroma_server() -> None
     assert config.ltm.cards_enabled is False
     assert config.ltm.chroma_mode == DMFConfig().ltm.chroma_mode
     assert config.capacity.token_budget == 48
+
+
+def test_benchmark_config_for_qdrant_server_uses_remote_connection() -> None:
+    config = build_benchmark_config(
+        DMFConfig(),
+        collection_name="dmf_benchmark_test",
+        backend=BACKEND_QDRANT,
+        qdrant_mode="server",
+        qdrant_host="localhost",
+        qdrant_port=6333,
+    )
+
+    assert config.ltm.storage_type == "qdrant"
+    assert config.ltm.qdrant_mode == "server"
+    assert config.ltm.qdrant_host == "localhost"
+    assert config.ltm.qdrant_port == 6333
+    assert config.ltm.qdrant_ssl is False
+    assert config.ltm.qdrant_api_key_env == ""
 
 
 def test_benchmark_report_contains_backend_and_client_version() -> None:

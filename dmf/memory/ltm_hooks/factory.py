@@ -48,7 +48,7 @@ def build_ltm_hook(settings: LTMSettings, vector_config: VectorConfig) -> LTMHoo
         Configured LTM hook.
 
     Raises:
-        ValueError: If the backend or a required Chroma server token is invalid.
+        ValueError: If the backend or a required server credential is invalid.
     """
     if not settings.enabled:
         return NullLTMHook()
@@ -100,7 +100,15 @@ def build_ltm_hook(settings: LTMSettings, vector_config: VectorConfig) -> LTMHoo
         )
 
         mode = QdrantConnectionMode(settings.qdrant_mode)
-        connection = QdrantConnectionConfig(mode=mode)
+        api_key = _resolve_qdrant_api_key(settings, mode)
+        connection = QdrantConnectionConfig(
+            mode=mode,
+            host=settings.qdrant_host,
+            port=settings.qdrant_port,
+            ssl=settings.qdrant_ssl,
+            api_key=api_key,
+            timeout=settings.qdrant_timeout,
+        )
         return QdrantLTMHook(
             collection_name=settings.collection_name,
             distance_threshold=settings.distance_threshold,
@@ -139,3 +147,24 @@ def _resolve_chroma_auth_token(
             "is missing or empty"
         )
     return auth_token
+
+
+def _resolve_qdrant_api_key(
+    settings: LTMSettings,
+    mode: object,
+) -> str | None:
+    from dmf.memory.ltm_hooks.qdrant_client import QdrantConnectionMode
+
+    if mode is not QdrantConnectionMode.SERVER:
+        return None
+    if not settings.qdrant_api_key_env:
+        return None
+
+    env_name = settings.qdrant_api_key_env.strip()
+    api_key = os.getenv(env_name)
+    if api_key is None or not api_key.strip():
+        raise ValueError(
+            f"Qdrant API key environment variable {env_name!r} "
+            "is missing or empty"
+        )
+    return api_key

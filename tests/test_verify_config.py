@@ -57,6 +57,11 @@ class TestConfigParsing:
     def test_ltm_chroma_connection_section(self, cfg: DMFConfig) -> None:
         assert cfg.ltm.storage_type == "chroma"
         assert cfg.ltm.qdrant_mode == "memory"
+        assert cfg.ltm.qdrant_host == "localhost"
+        assert cfg.ltm.qdrant_port == 6333
+        assert cfg.ltm.qdrant_ssl is False
+        assert cfg.ltm.qdrant_api_key_env == ""
+        assert cfg.ltm.qdrant_timeout == 5
         assert cfg.ltm.chroma_mode == "embedded"
         assert cfg.ltm.chroma_host == "localhost"
         assert cfg.ltm.chroma_port == 8000

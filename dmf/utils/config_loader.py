@@ -98,6 +98,11 @@ from dmf.utils.constants import (
     DEFAULT_LTM_COLLECTION_NAME,
     DEFAULT_LTM_DISTANCE_THRESHOLD,
     DEFAULT_LTM_QDRANT_MODE,
+    DEFAULT_LTM_QDRANT_API_KEY_ENV,
+    DEFAULT_LTM_QDRANT_HOST,
+    DEFAULT_LTM_QDRANT_PORT,
+    DEFAULT_LTM_QDRANT_SSL,
+    DEFAULT_LTM_QDRANT_TIMEOUT,
     DEFAULT_LTM_RECALL_LIMIT,
     DEFAULT_LTM_STORAGE_PATH,
     DEFAULT_PRUNING_FREQUENCY,
@@ -143,6 +148,7 @@ from dmf.utils.constants import (
     LTM_BACKEND_FILE,
     LTM_BACKEND_QDRANT,
     LTM_CHROMA_MODE_SERVER,
+    LTM_QDRANT_MODE_SERVER,
     SUPPORTED_LTM_BACKENDS,
     SUPPORTED_LTM_CHROMA_MODES,
     SUPPORTED_LTM_QDRANT_MODES,
@@ -219,6 +225,23 @@ def _validate_ltm_settings(ltm: LTMSettings) -> None:
                 f"ltm.qdrant_mode must be one of {{{joined}}}; "
                 f"got {ltm.qdrant_mode!r}"
             )
+        if ltm.qdrant_api_key_env and not ltm.qdrant_api_key_env.strip():
+            raise ValueError(
+                "ltm.qdrant_api_key_env must not contain only whitespace"
+            )
+        if ltm.qdrant_mode == LTM_QDRANT_MODE_SERVER:
+            if not ltm.qdrant_host.strip():
+                raise ValueError(
+                    "ltm.qdrant_host must not be empty in server mode"
+                )
+            if not 1 <= ltm.qdrant_port <= 65535:
+                raise ValueError(
+                    "ltm.qdrant_port must be between 1 and 65535 in server mode"
+                )
+            if ltm.qdrant_timeout <= 0:
+                raise ValueError(
+                    "ltm.qdrant_timeout must be greater than zero in server mode"
+                )
 
     if not chroma_is_active:
         return
@@ -566,7 +589,7 @@ class LTMSettings:
             Backend identifier.
             ``"file"``   → ``FileLTMHook``  (JSONL audit trail, write-only).
             ``"chroma"`` → ``ChromaLTMHook`` (vector store with active recall).
-            ``"qdrant"`` → Qdrant vector store (local in-memory mode).
+            ``"qdrant"`` → Qdrant vector store (memory or server mode).
             ``"null"``   → ``NullLTMHook`` (silent discard, for tests).
             Default: ``"file"``.
         storage_path : str
@@ -580,8 +603,17 @@ class LTMSettings:
         chroma_mode : str
             Chroma connection mode: ``"embedded"`` or ``"server"``.
         qdrant_mode : str
-            Qdrant connection mode. Only volatile ``"memory"`` is currently
-            supported.
+            Qdrant connection mode: volatile ``"memory"`` or ``"server"``.
+        qdrant_host : str
+            Qdrant server hostname.
+        qdrant_port : int
+            Qdrant server HTTP port.
+        qdrant_ssl : bool
+            Whether to use HTTPS for a Qdrant server connection.
+        qdrant_api_key_env : str
+            Optional environment-variable name containing a Qdrant API key.
+        qdrant_timeout : int
+            Qdrant server request timeout in seconds.
         chroma_host : str
             Chroma server hostname.
         chroma_port : int
@@ -624,6 +656,11 @@ class LTMSettings:
         chroma_path: See the function signature and surrounding type hints.
         chroma_mode: See the function signature and surrounding type hints.
         qdrant_mode: See the function signature and surrounding type hints.
+        qdrant_host: See the function signature and surrounding type hints.
+        qdrant_port: See the function signature and surrounding type hints.
+        qdrant_ssl: See the function signature and surrounding type hints.
+        qdrant_api_key_env: See the function signature and surrounding type hints.
+        qdrant_timeout: See the function signature and surrounding type hints.
         chroma_host: See the function signature and surrounding type hints.
         chroma_port: See the function signature and surrounding type hints.
         chroma_ssl: See the function signature and surrounding type hints.
@@ -656,6 +693,11 @@ class LTMSettings:
     cards_path: str = DEFAULT_LTM_CARDS_PATH
     cards_collection_name: str = DEFAULT_LTM_CARDS_COLLECTION_NAME
     qdrant_mode: str = DEFAULT_LTM_QDRANT_MODE
+    qdrant_host: str = DEFAULT_LTM_QDRANT_HOST
+    qdrant_port: int = DEFAULT_LTM_QDRANT_PORT
+    qdrant_ssl: bool = DEFAULT_LTM_QDRANT_SSL
+    qdrant_api_key_env: str = DEFAULT_LTM_QDRANT_API_KEY_ENV
+    qdrant_timeout: int = DEFAULT_LTM_QDRANT_TIMEOUT
     chroma_mode: str = DEFAULT_LTM_CHROMA_MODE
     chroma_host: str = DEFAULT_LTM_CHROMA_HOST
     chroma_port: int = DEFAULT_LTM_CHROMA_PORT
@@ -827,6 +869,11 @@ class _LTMSettingsModel(_ConfigSectionModel):
     storage_path: str = LTMSettings.storage_path
     chroma_path: str = LTMSettings.chroma_path
     qdrant_mode: str = LTMSettings.qdrant_mode
+    qdrant_host: str = LTMSettings.qdrant_host
+    qdrant_port: int = LTMSettings.qdrant_port
+    qdrant_ssl: bool = LTMSettings.qdrant_ssl
+    qdrant_api_key_env: str = LTMSettings.qdrant_api_key_env
+    qdrant_timeout: int = LTMSettings.qdrant_timeout
     chroma_mode: str = LTMSettings.chroma_mode
     chroma_host: str = LTMSettings.chroma_host
     chroma_port: int = LTMSettings.chroma_port

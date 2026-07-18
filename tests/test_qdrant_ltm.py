@@ -231,6 +231,44 @@ def test_archive_is_idempotent_and_preserves_raw_payload_mapping() -> None:
     assert records[0].text == "alpha"
 
 
+def test_constructor_accepts_collection_created_by_concurrent_client() -> None:
+    delegate = QdrantClient(":memory:")
+
+    class RacingClient:
+        def __init__(self) -> None:
+            self.exists_calls = 0
+
+        def collection_exists(self, collection_name: str) -> bool:
+            self.exists_calls += 1
+            if self.exists_calls == 1:
+                return False
+            return delegate.collection_exists(collection_name)
+
+        def create_collection(self, **kwargs: Any) -> None:
+            delegate.create_collection(**kwargs)
+            raise RuntimeError("collection already exists")
+
+        def get_collection(self, collection_name: str) -> object:
+            return delegate.get_collection(collection_name)
+
+    hook = _hook(collection_name="raced", client=RacingClient())  # type: ignore[arg-type]
+
+    assert hook._collection_name == "raced"
+    assert delegate.collection_exists("raced")
+
+
+def test_constructor_propagates_collection_creation_failure() -> None:
+    class FailingClient:
+        def collection_exists(self, collection_name: str) -> bool:  # noqa: ARG002
+            return False
+
+        def create_collection(self, **kwargs: Any) -> None:  # noqa: ARG002
+            raise RuntimeError("server unavailable")
+
+    with pytest.raises(RuntimeError, match="server unavailable"):
+        _hook(collection_name="failed", client=FailingClient())  # type: ignore[arg-type]
+
+
 def test_search_raw_returns_ranking_threshold_and_scores() -> None:
     hook = _hook(distance_threshold=0.4)
     hook.archive(_make_entry(1, "alpha", [1.0, 0.0]))

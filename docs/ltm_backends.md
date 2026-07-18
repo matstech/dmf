@@ -12,6 +12,7 @@ construction remains available for custom applications and tests.
 | Chroma embedded | Semantic search | Local Chroma directory | Single-process applications |
 | Chroma server | Semantic search | Managed by the Chroma service | Multiple clients and service deployments |
 | Qdrant Local Mode | Semantic search | Volatile process memory | Isolated local runs and tests |
+| Qdrant server | Semantic search | Managed by the Qdrant service | Multiple clients and service deployments |
 | `NullLTMHook` | No | No | Disabled LTM and isolated tests |
 
 Chroma embedded remains the default connection mode. Existing configurations
@@ -60,9 +61,8 @@ distance_threshold = 0.7
 
 `qdrant_mode = "memory"` builds `QdrantClient(":memory:")`. Each client owns a
 separate in-memory store, even when the same collection names are used. Data is
-not written to disk and disappears when the Python process exits. Local
-persistent Qdrant and Qdrant server connections are intentionally outside the
-current release scope.
+not written to disk and disappears when the Python process exits. Persistent
+Local Mode remains outside scope; use server mode for durable data.
 
 Direct construction is available for tests and custom applications:
 
@@ -81,6 +81,51 @@ hook = QdrantLTMHook(
 )
 ```
 
+## Qdrant server
+
+Server mode uses Qdrant's HTTP API and leaves persistence and backups under the
+service operator's control:
+
+```toml
+[ltm]
+enabled = true
+storage_type = "qdrant"
+qdrant_mode = "server"
+qdrant_host = "localhost"
+qdrant_port = 6333
+qdrant_ssl = false
+qdrant_api_key_env = ""
+qdrant_timeout = 5
+collection_name = "dmf_memory"
+```
+
+Direct construction uses the same hook:
+
+```python
+connection = QdrantConnectionConfig(
+    mode=QdrantConnectionMode.SERVER,
+    host="localhost",
+    port=6333,
+)
+hook = QdrantLTMHook(connection=connection)
+```
+
+For authenticated deployments, keep the API key out of TOML:
+
+```toml
+qdrant_api_key_env = "DMF_QDRANT_API_KEY"
+```
+
+```bash
+export DMF_QDRANT_API_KEY="your-api-key"
+```
+
+The variable is read only for an active Qdrant server backend. Missing or
+empty values fail before client construction, and the key is excluded from
+connection representations. TLS certificate verification remains enabled when
+`qdrant_ssl = true`. This release uses REST and does not expose gRPC transport,
+custom CA, or automatic application-level retry settings.
+
 An already constructed Qdrant client can be passed with `client=...`. Injected
 clients are used unchanged; their lifecycle, isolation, and persistence remain
 the caller's responsibility.
@@ -95,8 +140,8 @@ When `cards_enabled = true`, projected memory cards are stored in the separate
 `cards_collection_name` collection. The raw and card collection names must be
 distinct. Cards initially use the source record vector and include source raw
 metadata so card recall can apply the same backend-neutral filters. `clear()`
-deletes raw points only; orphaned cards are ignored when their source raw
-record is no longer present.
+deletes both raw points and projected card points while preserving the two
+collections. The optional JSONL card audit remains append-only.
 
 Qdrant point IDs are deterministic UUIDv5 values derived from the DMF raw
 record ID or card ID. The original DMF identity stays in the payload. This
@@ -153,6 +198,9 @@ In Qdrant Local Mode, payload indexes are not created. Qdrant may warn that
 index creation is a no-op, and metadata filters are evaluated by local
 full-scan. This is expected for the in-memory backend.
 
+Server collection creation tolerates another client winning the same bootstrap
+race, then validates the resulting vector size and COSINE distance normally.
+
 ### Qdrant errors
 
 If the Qdrant extra is missing, constructing a Qdrant client raises an
@@ -167,6 +215,29 @@ wrong dimension, named vectors, or a non-COSINE distance, initialization raises
 `ValueError`. DMF never deletes or recreates an incompatible collection
 automatically. If raw and card collection names are identical, initialization
 also raises `ValueError`.
+
+## Local Qdrant service
+
+The repository includes `compose.qdrant.yml`, pinned to Qdrant 1.18.2 with a
+persistent named volume and readiness check.
+
+```bash
+make qdrant-up
+make test-integration-qdrant
+make qdrant-down
+```
+
+To select another local port, pass the same value to all commands:
+
+```bash
+QDRANT_PORT=16333 make qdrant-up
+QDRANT_PORT=16333 make test-integration-qdrant
+QDRANT_PORT=16333 make qdrant-down
+```
+
+The integration test creates unique raw and card collections, verifies that a
+second client observes the archived data, and deletes both collections. The
+standard `make test` command does not require Docker.
 
 ## Embedded Chroma
 
@@ -275,7 +346,8 @@ TOML.
 Raw LTM records remain canonical. When cards are enabled, Chroma uses a
 separate card collection. The optional JSONL card audit file remains local even
 when Chroma runs in server mode; set `cards_path` explicitly when the default
-path is not appropriate for the client host.
+path is not appropriate for the client host. `clear()` removes both raw and
+projected-card vectors while leaving that append-only audit file untouched.
 
 ## Local Chroma service
 
@@ -302,9 +374,9 @@ require Docker.
 
 ## Local Ollama functional benchmark
 
-The optional benchmark exercises the complete local path: DMF ingestion,
-archival to Chroma server, retrieval, context rendering, and an isolated Ollama
-agent. It is a functional diagnostic and not a model-quality CI gate.
+The optional benchmark exercises DMF ingestion, archival, retrieval, context
+rendering, and an isolated Ollama agent. It is a functional diagnostic and not
+a model-quality CI gate.
 
 Prerequisites:
 
@@ -324,14 +396,29 @@ make chroma-down
 ```
 
 The runner never downloads models or images. It accepts only loopback Ollama
-and Chroma endpoints and writes sanitized reports under the ignored
+and vector-server endpoints and writes sanitized reports under the ignored
 `integrationtest/results/` directory.
+
+Qdrant remains in memory by default. With the local service running, select
+server mode explicitly:
+
+```bash
+make qdrant-up
+make benchmark-ltm-qdrant-server-local
+make qdrant-down
+```
+
+The server benchmark reads `QDRANT_HOST` and `QDRANT_PORT` and accepts only
+loopback endpoints.
 
 ## Version compatibility
 
 The Python dependency supports Chroma `>=0.6.3,<0.7.0`, and the local Compose
 image is pinned to `0.6.3`. The retry integration depends on Chroma 0.6.x HTTP
 internals and must be reviewed before upgrading to Chroma 0.7 or later.
+
+The optional Python dependency supports `qdrant-client >=1.17,<2.0`; the lock
+currently resolves 1.18.0 and the local service is pinned to Qdrant 1.18.2.
 
 ## Migrating legacy imports
 

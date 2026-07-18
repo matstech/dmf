@@ -151,6 +151,11 @@ def test_ltm_chroma_connection_defaults_preserve_embedded_mode(
     cfg = load_dmf_config(_write_toml(tmp_path, "[ltm]"))
 
     assert cfg.ltm.qdrant_mode == "memory"
+    assert cfg.ltm.qdrant_host == "localhost"
+    assert cfg.ltm.qdrant_port == 6333
+    assert cfg.ltm.qdrant_ssl is False
+    assert cfg.ltm.qdrant_api_key_env == ""
+    assert cfg.ltm.qdrant_timeout == 5
     assert cfg.ltm.chroma_mode == "embedded"
     assert cfg.ltm.chroma_host == "localhost"
     assert cfg.ltm.chroma_port == 8000
@@ -208,6 +213,63 @@ qdrant_mode = "memory"
 
     assert cfg.ltm.storage_type == "qdrant"
     assert cfg.ltm.qdrant_mode == "memory"
+
+
+def test_load_dmf_config_parses_qdrant_server_settings(tmp_path: Path) -> None:
+    path = _write_toml(
+        tmp_path,
+        """
+[ltm]
+storage_type = "qdrant"
+qdrant_mode = "server"
+qdrant_host = "qdrant.internal"
+qdrant_port = 7443
+qdrant_ssl = true
+qdrant_api_key_env = "DMF_QDRANT_API_KEY"
+qdrant_timeout = 12
+""".strip(),
+    )
+
+    cfg = load_dmf_config(path)
+
+    assert cfg.ltm.qdrant_mode == "server"
+    assert cfg.ltm.qdrant_host == "qdrant.internal"
+    assert cfg.ltm.qdrant_port == 7443
+    assert cfg.ltm.qdrant_ssl is True
+    assert cfg.ltm.qdrant_api_key_env == "DMF_QDRANT_API_KEY"
+    assert cfg.ltm.qdrant_timeout == 12
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("qdrant_host", '"   "', "ltm.qdrant_host"),
+        ("qdrant_port", "0", "ltm.qdrant_port"),
+        ("qdrant_port", "65536", "ltm.qdrant_port"),
+        ("qdrant_timeout", "0", "ltm.qdrant_timeout"),
+        ("qdrant_api_key_env", '"   "', "ltm.qdrant_api_key_env"),
+    ],
+)
+def test_load_dmf_config_rejects_invalid_qdrant_server_settings(
+    tmp_path: Path,
+    field: str,
+    value: str,
+    message: str,
+) -> None:
+    path = _write_toml(
+        tmp_path,
+        "\n".join(
+            [
+                "[ltm]",
+                'storage_type = "qdrant"',
+                'qdrant_mode = "server"',
+                f"{field} = {value}",
+            ]
+        ),
+    )
+
+    with pytest.raises(ValueError, match=message):
+        load_dmf_config(path)
 
 
 def test_load_dmf_config_rejects_unknown_chroma_mode_when_chroma_active(
@@ -319,6 +381,36 @@ chroma_auth_token_env = "   "
 
     assert cfg.ltm.storage_type == "qdrant"
     assert cfg.ltm.qdrant_mode == "memory"
+
+
+@pytest.mark.parametrize(
+    ("storage_type", "enabled"),
+    [("file", True), ("null", True), ("chroma", True), ("qdrant", False)],
+)
+def test_inactive_qdrant_server_does_not_validate_connection_fields(
+    tmp_path: Path,
+    storage_type: str,
+    enabled: bool,
+) -> None:
+    path = _write_toml(
+        tmp_path,
+        "\n".join(
+            [
+                "[ltm]",
+                f'storage_type = "{storage_type}"',
+                f"enabled = {str(enabled).lower()}",
+                'qdrant_mode = "server"',
+                'qdrant_host = ""',
+                "qdrant_port = 0",
+                "qdrant_timeout = 0",
+                'qdrant_api_key_env = "   "',
+            ]
+        ),
+    )
+
+    cfg = load_dmf_config(path)
+
+    assert cfg.ltm.qdrant_mode == "server"
 
 
 @pytest.mark.parametrize(

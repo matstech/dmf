@@ -1,4 +1,4 @@
-.PHONY: help lock install build test test-integration benchmark-ltm-local benchmark-ltm-qdrant-local chroma-up chroma-down check compile docs-serve docs-build
+.PHONY: help lock install build test test-integration test-integration-qdrant benchmark-ltm-local benchmark-ltm-qdrant-local benchmark-ltm-qdrant-server-local chroma-up chroma-down qdrant-up qdrant-down check compile docs-serve docs-build
 
 # Update poetry.lock
 lock:
@@ -27,7 +27,15 @@ chroma-up:
 
 # Run integration tests requiring the local Chroma server
 test-integration:
-	poetry run pytest -o addopts="-v --tb=short" -m integration integrationtest
+	poetry run pytest -o addopts="-v --tb=short" -m integration integrationtest/test_chroma_server.py
+
+# Start Qdrant 1.18.2 and wait for the service to be ready
+qdrant-up:
+	docker compose -f compose.qdrant.yml up -d --wait
+
+# Run integration tests requiring the local Qdrant server
+test-integration-qdrant:
+	poetry run pytest -o addopts="-v --tb=short" -m integration integrationtest/test_qdrant_server.py
 
 # Run the local DMF LTM + Ollama mini-benchmark (independent of pytest)
 benchmark-ltm-local:
@@ -36,9 +44,16 @@ benchmark-ltm-local:
 benchmark-ltm-qdrant-local:
 	poetry run python -m integrationtest.run_ltm_benchmark --backend qdrant
 
+benchmark-ltm-qdrant-server-local:
+	poetry run python -m integrationtest.run_ltm_benchmark --backend qdrant --qdrant-mode server
+
 # Stop containers without removing persistent volumes
 chroma-down:
 	docker compose -f compose.chroma.yml down
+
+# Stop Qdrant containers without removing persistent volumes
+qdrant-down:
+	docker compose -f compose.qdrant.yml down
 
 # Build the wheel distribution package in dist/
 build:
@@ -63,9 +78,13 @@ help:
 	@echo "  make test                  Run the unit test suite"
 	@echo "  make chroma-up             Start Chroma 0.6.3 (Docker container)"
 	@echo "  make test-integration      Run integration tests against the local Chroma server"
+	@echo "  make qdrant-up             Start Qdrant 1.18.2 (Docker container)"
+	@echo "  make test-integration-qdrant Run integration tests against the local Qdrant server"
 	@echo "  make benchmark-ltm-local   Run the local DMF LTM + Ollama benchmark"
 	@echo "  make benchmark-ltm-qdrant-local Run the local DMF LTM + Ollama benchmark with Qdrant"
+	@echo "  make benchmark-ltm-qdrant-server-local Run the local benchmark with Qdrant server"
 	@echo "  make chroma-down           Stop Chroma containers"
+	@echo "  make qdrant-down           Stop Qdrant containers"
 	@echo "  make build                 Build wheel package in dist/"
 	@echo "  make docs-serve            Start development server for documentation"
 	@echo "  make docs-build            Build static documentation"
