@@ -23,7 +23,7 @@
 [project]
 name = "dmf-memory"
 # $versifyr:template={{ (printf "version = \"%s\"" .version) }}$
-version = "0.2.0"
+version = "0.3.0"
 description = "Deterministic Memory Framework"
 authors = [{ name = "matstech", email = "matteo.stabile2@gmail.com" }]
 readme = "README.md"
